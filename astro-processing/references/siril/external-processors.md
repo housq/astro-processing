@@ -59,7 +59,9 @@ Start around 0.25–0.4. Compare at 100%; lower strength when filaments look wax
 
 ## StarNet through Siril
 
-Siril preferences need both the StarNet CLI path and, for the Torch build, its weights. Use Siril's integration for a linear FITS:
+Probe `--version` and `--help`; do not infer the interface from a filename. Legacy 2.1/2.4 Torch builds require a separate weights file. Current 2.5.4 ORT/CoreML packages are self-contained and accept `--input`, `--output`, optional `--mask`, and optional `--unscreen`; they do not require a separate runtime or weights override. The current CLI accepts 8/16-bit integer TIFF/PNG input, not the 32-bit floating-point checkpoint directly.
+
+Use the routed executor so Siril owns the temporary integer exchange, temporary stretch, inverse transform, and restored 32-bit FITS checkpoints. It writes run-local `starnet_exe` and `starnet_weights` settings without changing the user's global Siril preferences. The underlying Siril operation is:
 
 ```text
 load calibrated-linear.fit
@@ -67,6 +69,8 @@ starnet -stretch
 ```
 
 `-stretch` applies a temporary MTF, invokes StarNet, then reverses the stretch. Siril saves 32-bit FITS outputs named `starless_<input>.fit` and `starmask_<input>.fit`. The loaded image becomes starless.
+
+Current StarNet packages are treated as experimental on a host until that exact version/backend completes a smoke test; a successful legacy build does not validate a new ORT/CoreML build. See the [official current CLI reference](https://starnetastro.com/documentation/starnet/command-line-tool/).
 
 Check that:
 

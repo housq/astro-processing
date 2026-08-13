@@ -27,7 +27,7 @@ from pathlib import Path
 from typing import Any, Iterable
 
 
-SKILL_VERSION = "0.3.0"
+SKILL_VERSION = "0.4.0"
 MIN_SIRIL_VERSION = (1, 4, 0)
 FITS_EXTENSIONS = {".fit", ".fits", ".fts"}
 RAW_EXTENSIONS = {
@@ -519,7 +519,7 @@ def create_run(input_dir: Path, output_dir: Path, run_id: str | None, dark_temp_
     for group in plan["groups"]:
         state["groups"][group["id"]] = {"preprocess": "pending", "attempts": [], "selected_attempt": None}
         base = run_dir / "groups" / group["id"]
-        for name in ("inputs", "process", "masters", "checkpoints", "attempts", "logs", "scripts"):
+        for name in ("inputs", "process", "masters", "checkpoints", "attempts", "external", "logs", "scripts"):
             (base / name).mkdir(parents=True, exist_ok=True)
     atomic_json(run_dir / "state.json", state)
     write_report(run_dir)
@@ -1334,15 +1334,24 @@ def append_checkpoint(lines: list[str], attempt_dir: Path, stage: str, preview_l
         ]
 
 
-def postprocess_script(input_checkpoint: Path, attempt_dir: Path, params: dict[str, Any], start_stage: str) -> str:
+def postprocess_script(
+    input_checkpoint: Path,
+    attempt_dir: Path,
+    params: dict[str, Any],
+    start_stage: str,
+    end_stage: str | None = None,
+) -> str:
     validate_params(params)
     start_index = POST_STAGES.index(start_stage)
+    end_index = POST_STAGES.index(end_stage) if end_stage else len(POST_STAGES) - 1
+    if end_index < start_index:
+        raise PipelineError(f"end stage {POST_STAGES[end_index]} precedes start stage {start_stage}")
     lines = [
         "# Generated post-processing attempt. Pixel operations are all Siril commands.",
         "requires 1.4.0",
         f"load {ssf_quote(input_checkpoint)}",
     ]
-    for index, stage in enumerate(POST_STAGES[start_index:], start=start_index):
+    for index, stage in enumerate(POST_STAGES[start_index:end_index + 1], start=start_index):
         if stage == "background":
             cfg = params["background"]
             if cfg.get("enabled", True):
@@ -1438,6 +1447,7 @@ def run_postprocess(
     params_path: Path | None,
     siril: str | None,
     start_stage: str,
+    end_stage: str | None,
     from_checkpoint: Path | None,
     dry_run: bool,
 ) -> None:
@@ -1449,6 +1459,9 @@ def run_postprocess(
         version, text = siril_version(executable)
         if version < MIN_SIRIL_VERSION:
             raise PipelineError(f"Siril >= 1.4.0 is required; found {text}")
+    final_stage = end_stage or POST_STAGES[-1]
+    if POST_STAGES.index(final_stage) < POST_STAGES.index(start_stage):
+        raise PipelineError(f"end stage {final_stage} precedes start stage {start_stage}")
     for group in selected_groups(plan, requested_groups):
         group_id = group["id"]
         group_root = run_dir / "groups" / group_id
@@ -1471,7 +1484,7 @@ def run_postprocess(
             input_checkpoint = group_root / "attempts" / selected / f"{previous}.fit"
         if not input_checkpoint.is_file() and not dry_run:
             raise PipelineError(f"Post-processing input checkpoint does not exist: {input_checkpoint}")
-        script = postprocess_script(input_checkpoint, attempt_dir, params, start_stage)
+        script = postprocess_script(input_checkpoint, attempt_dir, params, start_stage, final_stage)
         script_path = attempt_dir / "postprocess.ssf"
         script_path.write_text(script, encoding="utf-8")
         snapshot = attempt_dir / "params.json"
@@ -1481,6 +1494,7 @@ def run_postprocess(
             "created_at": now_utc(),
             "status": "planned" if dry_run else "running",
             "start_stage": start_stage,
+            "end_stage": final_stage,
             "input_checkpoint": str(input_checkpoint),
             "params": str(snapshot),
             "script": str(script_path),
@@ -1493,10 +1507,19 @@ def run_postprocess(
         log = attempt_dir / "postprocess.log"
         returncode = run_siril(executable, script_path, log)  # type: ignore[arg-type]
         log_text = log.read_text(encoding="utf-8", errors="replace")
-        requested_color = params.get("color", {}).get("enabled", True) and params.get("color", {}).get("mode") in {"pcc", "spcc"}
+        color_executed = (
+            POST_STAGES.index(start_stage) <= POST_STAGES.index("color") <= POST_STAGES.index(final_stage)
+        )
+        requested_color = (
+            color_executed
+            and params.get("color", {}).get("enabled", True)
+            and params.get("color", {}).get("mode") in {"pcc", "spcc"}
+        )
         color_mode = params.get("color", {}).get("mode", "none")
         plate_solve_succeeded = "Siril solve succeeded." in log_text
-        if color_mode == "pcc":
+        if not requested_color:
+            color_calibration_succeeded = None
+        elif color_mode == "pcc":
             color_calibration_succeeded = "Photometric Color Calibration succeeded." in log_text
         elif color_mode == "spcc":
             color_calibration_succeeded = "Spectrophotometric Color Calibration succeeded." in log_text
@@ -1509,10 +1532,7 @@ def run_postprocess(
             "imprecise_solution_warning": "imprecise solution" in log_text.lower(),
             "dns_or_catalog_failure": bool(re.search(r"libcurl error:\s*\[6\]|unable to retrieve the remote catalogue", log_text, re.IGNORECASE)),
         }
-        expected_stage = POST_STAGES[-1]
-        expected = attempt_dir / f"{expected_stage}.fit"
-        if start_stage != "background" and POST_STAGES.index(start_stage) > POST_STAGES.index(expected_stage):
-            expected = attempt_dir / f"{start_stage}.fit"
+        expected = attempt_dir / f"{final_stage}.fit"
         attempt_record["returncode"] = returncode
         calibration_ok = not requested_color or (plate_solve_succeeded and bool(color_calibration_succeeded))
         attempt_record["status"] = "complete" if returncode == 0 and expected.exists() and calibration_ok else "failed"
@@ -1571,7 +1591,7 @@ def human_bytes(value: int | float) -> str:
 def write_report(run_dir: Path) -> Path:
     _, marker, plan, state = require_run(run_dir)
     lines = [
-        "# Siril deep-sky processing report",
+        "# Astrophotography processing report",
         "",
         f"- Run: `{marker['run_id']}`",
         f"- Input: `{marker['input_dir']}`",
@@ -1625,7 +1645,18 @@ def write_report(run_dir: Path) -> Path:
         for warning in group.get("warnings", []):
             lines.append(f"- Warning [{warning['severity']} / {warning['code']}]: {warning['message']}")
         for attempt in group_state.get("attempts", []):
-            lines.append(f"- Attempt `{attempt['id']}`: {attempt['status']} (from {attempt['start_stage']})")
+            lines.append(
+                f"- Attempt `{attempt['id']}`: {attempt['status']} "
+                f"({attempt['start_stage']} through {attempt.get('end_stage', POST_STAGES[-1])})"
+            )
+        for attempt in group_state.get("processor_attempts", []):
+            review = attempt.get("visual_review", {})
+            review_text = f"; visual review {review.get('verdict')}" if review else ""
+            candidate_text = "; A/B candidate only" if attempt.get("candidate_only") else ""
+            lines.append(
+                f"- Processor attempt `{attempt['id']}`: {attempt.get('status', 'unknown')} "
+                f"({attempt.get('stage')} via {attempt.get('processor')}{candidate_text}{review_text})"
+            )
         if group_state.get("final_dir"):
             lines.append(f"- Final outputs: `{group_state['final_dir']}`")
         lines.append("")
@@ -1666,7 +1697,12 @@ def cleanup_candidates(run_dir: Path, plan: dict[str, Any], state: dict[str, Any
             for attempt_dir in (group_root / "attempts").glob("attempt-*"):
                 if attempt_dir.name != selected:
                     candidates.append(attempt_dir)
-            candidates += [group_root / "masters", group_root / "checkpoints", group_root / "attempts" / selected]
+            candidates += [
+                group_root / "masters",
+                group_root / "checkpoints",
+                group_root / "attempts" / selected,
+                group_root / "external",
+            ]
     return [path for path in candidates if path.exists()]
 
 
@@ -1753,7 +1789,6 @@ def build_parser() -> argparse.ArgumentParser:
     for action in run_p._actions[1:]:  # mirror stable run options without duplicating behavior
         if action.dest == "force":
             continue
-        kwargs: dict[str, Any] = {"dest": action.dest, "default": action.default, "required": action.required, "help": action.help}
         if isinstance(action, argparse._StoreTrueAction):
             resume_p.add_argument(*action.option_strings, action="store_true", help=action.help)
         elif isinstance(action, argparse._AppendAction):
@@ -1767,6 +1802,7 @@ def build_parser() -> argparse.ArgumentParser:
     post_p.add_argument("--params", type=Path)
     post_p.add_argument("--siril")
     post_p.add_argument("--start-stage", choices=POST_STAGES, default="background")
+    post_p.add_argument("--end-stage", choices=POST_STAGES, help="stop after this checkpoint instead of running through finish")
     post_p.add_argument("--from-checkpoint", type=Path)
     post_p.add_argument("--dry-run", action="store_true")
 
@@ -1851,7 +1887,10 @@ def main(argv: list[str] | None = None) -> int:
             run_preprocess(run_dir, plan, state, args.group, args.siril, args.quality_k, args.allow_risky_dark, args.dry_run, getattr(args, "force", False))
         elif args.command == "postprocess":
             run_dir, _, plan, state = require_run(args.run)
-            run_postprocess(run_dir, plan, state, args.group, args.params, args.siril, args.start_stage, args.from_checkpoint, args.dry_run)
+            run_postprocess(
+                run_dir, plan, state, args.group, args.params, args.siril,
+                args.start_stage, args.end_stage, args.from_checkpoint, args.dry_run,
+            )
         elif args.command == "comet":
             run_dir, _, plan, state = require_run(args.run)
             run_comet(

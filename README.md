@@ -4,7 +4,7 @@ Reusable Agent Skills and deterministic helpers for astrophotography processing.
 
 ## Included skills
 
-- [`astro-processing`](astro-processing/SKILL.md): the single environment-aware user entry. It discovers Siril, PixInsight, GraXpert, StarNet, and RC-Astro capabilities; resolves preferences and support maturity; freezes a confirmed run route; and delegates pixel processing through isolated adapters.
+- [`astro-processing`](astro-processing/SKILL.md): the single environment-aware user entry. It discovers Siril, PixInsight, GraXpert, StarNet, RC-Astro, and experimental SETI Astro capabilities; resolves preferences and support maturity; freezes a confirmed run route; and delegates pixel processing through isolated adapters and reviewable checkpoints.
 
 ## Installation
 

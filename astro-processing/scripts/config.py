@@ -19,8 +19,10 @@ DEFAULTS: dict[str, Any] = {
     },
     "execution": {"profile": "balanced"},
     "processors": {
+        "satellite_removal": {"mode": "disabled", "candidates": []},
         "background_extraction": {"mode": "auto", "candidates": []},
         "deconvolution": {"mode": "disabled", "candidates": []},
+        "detail_restoration": {"mode": "disabled", "candidates": []},
         "star_separation": {"mode": "prefer", "candidates": ["sxt", "starnet", "disabled"]},
         "denoise": {"mode": "auto", "candidates": []},
     },

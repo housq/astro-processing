@@ -42,6 +42,13 @@ def capabilities() -> dict:
             "maturity": "validated",
             "stages": {"star_separation": "validated"},
         },
+        "setiastro": {
+            "available": False,
+            "installed": False,
+            "maturity": "unavailable",
+            "stages": {},
+            "ab_stages": {},
+        },
         "rc_astro": {
             "available": False,
             "installed": False,
@@ -58,7 +65,31 @@ def test_balanced_route() -> None:
     assert route["processors"]["background_extraction"]["selected"] == "graxpert"
     assert route["processors"]["star_separation"]["selected"] == "starnet"
     assert route["processors"]["deconvolution"]["selected"] == "disabled"
+    assert route["processors"]["detail_restoration"]["selected"] == "disabled"
+    assert route["processors"]["satellite_removal"]["selected"] == "disabled"
     assert route["processors"]["denoise"]["selected"] == "graxpert"
+
+
+def test_setiastro_is_opt_in_and_experimental() -> None:
+    caps = capabilities()
+    caps["setiastro"] = {
+        "available": True,
+        "installed": True,
+        "maturity": "experimental",
+        "stages": {"detail_restoration": "experimental", "satellite_removal": "experimental"},
+    }
+    config = {
+        **DEFAULTS,
+        "execution": {"profile": "quality"},
+        "processors": {
+            **DEFAULTS["processors"],
+            "detail_restoration": {"mode": "require", "candidates": ["setiastro"]},
+        },
+    }
+    route = build_route(config, caps)
+    assert route["processors"]["detail_restoration"]["selected"] == "setiastro"
+    assert route["processors"]["detail_restoration"]["requires_confirmation"] is True
+    assert route["processors"]["satellite_removal"]["selected"] == "disabled"
 
 
 def test_hard_requirement_fails() -> None:
@@ -131,6 +162,7 @@ def test_config_precedence() -> None:
 def main() -> None:
     tests = [
         test_balanced_route,
+        test_setiastro_is_opt_in_and_experimental,
         test_hard_requirement_fails,
         test_explicit_pixinsight_requirement_is_not_silently_replaced,
         test_config_roundtrip,

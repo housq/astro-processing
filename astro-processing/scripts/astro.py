@@ -5,7 +5,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 import platform
 import shutil
 import socket
@@ -17,14 +16,15 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
-from adapters import graxpert, pixinsight, rc_astro, siril, starnet  # noqa: E402
+from adapters import graxpert, pixinsight, rc_astro, setiastro, siril, starnet  # noqa: E402
 from adapters import siril_engine  # noqa: E402
 from config import ConfigError, find_project_root, resolve_config  # noqa: E402
+from external_executor import ExternalExecutionError, REVIEW_VERDICTS, ROUTED_STAGES, review_stage, run_stage  # noqa: E402
 from router import RoutingError, build_route  # noqa: E402
 from state import write_run_snapshot  # noqa: E402
 
 
-VERSION = "0.1.0"
+VERSION = "0.2.0"
 PASSTHROUGH = {"run", "resume", "postprocess", "comet", "select", "report", "cleanup"}
 
 
@@ -53,6 +53,7 @@ def discover(project_root: Path, explicit_siril: str | None = None) -> dict[str,
         "pixinsight": pixinsight.discover(),
         "graxpert": graxpert.discover(project_root),
         "starnet": starnet.discover(),
+        "setiastro": setiastro.discover(),
         "rc_astro": rc_astro.discover(),
     }
 
@@ -193,6 +194,27 @@ def build_parser() -> argparse.ArgumentParser:
     plan.add_argument("--run-id")
     plan.add_argument("--confirm-route", action="store_true", help="confirm the displayed initial route and recorded fallbacks")
     plan.add_argument("--json", type=Path)
+    stage = sub.add_parser("stage", help="execute one frozen-route processor as a reviewable checkpoint attempt")
+    stage.add_argument("--run", type=Path, required=True)
+    stage.add_argument("--group", required=True)
+    stage.add_argument("--stage", choices=ROUTED_STAGES, required=True)
+    stage.add_argument("--processor", help="selected processor or a frozen fallback; SETI A/B use requires --ab-candidate")
+    stage.add_argument("--input", type=Path, help="explicit source checkpoint; otherwise resolve the latest accepted checkpoint")
+    stage.add_argument("--params", type=Path, help="JSON mapping merged over conservative adapter defaults")
+    stage.add_argument("--reference", type=Path, action="append", default=[])
+    stage.add_argument("--reference-notes", default="")
+    stage.add_argument("--ab-candidate", action="store_true", help="run SETI denoise/starless only as a non-promotable A/B candidate")
+    stage.add_argument("--linear", action=argparse.BooleanOptionalAction, default=True)
+    stage.add_argument("--siril")
+    stage.add_argument("--dry-run", action="store_true")
+    review = sub.add_parser("review-stage", help="record visual findings and accept or reject a processor attempt")
+    review.add_argument("--run", type=Path, required=True)
+    review.add_argument("--group", required=True)
+    review.add_argument("--attempt", required=True)
+    review.add_argument("--verdict", choices=REVIEW_VERDICTS, required=True)
+    review.add_argument("--notes", default="")
+    review.add_argument("--issue", action="append", default=[])
+    review.add_argument("--reference", type=Path, action="append", default=[], help="additional reference supplied during review")
     return parser
 
 
@@ -244,8 +266,17 @@ def main(argv: list[str] | None = None) -> int:
                 )
                 print(f"Run: {run_dir}")
                 print(f"Frozen route: {snapshot}")
+        elif args.command == "stage":
+            print(run_stage(
+                args.run, args.group, args.stage, args.processor, args.input, args.params,
+                args.reference, args.reference_notes, args.ab_candidate, args.linear, args.siril, args.dry_run,
+            ))
+        elif args.command == "review-stage":
+            print(review_stage(
+                args.run, args.group, args.attempt, args.verdict, args.notes, args.issue, args.reference
+            ))
         return 0
-    except (AstroError, ConfigError, RoutingError, siril_engine.PipelineError, OSError) as exc:
+    except (AstroError, ConfigError, RoutingError, ExternalExecutionError, siril_engine.PipelineError, OSError) as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 2
 

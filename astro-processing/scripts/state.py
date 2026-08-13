@@ -38,7 +38,11 @@ def write_run_snapshot(
         name: {
             key: value
             for key, value in capability.items()
-            if key in {"available", "installed", "executable", "version", "maturity", "license", "platform", "stages"}
+            if key in {
+                "available", "installed", "executable", "version", "maturity", "license", "platform", "stages",
+                "ab_stages", "command_prefix", "interface", "runtime_backend", "requires_weights", "weights", "models",
+                "super_resolution",
+            }
         }
         for name, capability in capabilities.items()
         if isinstance(capability, dict) and name not in {"environment"}

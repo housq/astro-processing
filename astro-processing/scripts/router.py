@@ -11,28 +11,44 @@ class RoutingError(RuntimeError):
 
 
 MAIN_BACKENDS = ("siril", "pixinsight")
+PROCESSOR_STAGES = (
+    "satellite_removal",
+    "background_extraction",
+    "deconvolution",
+    "detail_restoration",
+    "star_separation",
+    "denoise",
+)
 PROCESSOR_DEFAULTS = {
     "balanced": {
+        "satellite_removal": ["disabled"],
         "background_extraction": ["graxpert", "main"],
         "deconvolution": ["bxt", "disabled"],
+        "detail_restoration": ["disabled"],
         "star_separation": ["sxt", "starnet", "main", "disabled"],
         "denoise": ["nxt", "graxpert", "main"],
     },
     "quality": {
+        "satellite_removal": ["disabled"],
         "background_extraction": ["graxpert", "main"],
         "deconvolution": ["bxt", "disabled"],
+        "detail_restoration": ["disabled"],
         "star_separation": ["sxt", "starnet", "main", "disabled"],
         "denoise": ["nxt", "graxpert", "main"],
     },
     "fast": {
+        "satellite_removal": ["disabled"],
         "background_extraction": ["main"],
         "deconvolution": ["disabled"],
+        "detail_restoration": ["disabled"],
         "star_separation": ["disabled"],
         "denoise": ["main"],
     },
     "native-only": {
+        "satellite_removal": ["disabled"],
         "background_extraction": ["main"],
         "deconvolution": ["disabled"],
+        "detail_restoration": ["disabled"],
         "star_separation": ["main", "disabled"],
         "denoise": ["main"],
     },
@@ -177,7 +193,7 @@ def build_route(config: dict[str, Any], capabilities: dict[str, Any], explicit_b
     main = resolve_main_backend(config, capabilities, explicit_backend)
     processors = {
         stage: resolve_processor(stage, config, capabilities, main["selected"], profile)
-        for stage in ("background_extraction", "deconvolution", "star_separation", "denoise")
+        for stage in PROCESSOR_STAGES
     }
     reasons = []
     if main.get("requires_confirmation"):

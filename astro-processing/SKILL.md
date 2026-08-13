@@ -1,11 +1,11 @@
 ---
 name: astro-processing
-description: Inspect, calibrate, clean, register, integrate, visually refine, and export astrophotography through one environment-aware workflow that routes between Siril and PixInsight main backends and optional RC-Astro, GraXpert, and StarNet processors. Use for color-camera or OSC deep-sky and comet data; for selecting astronomy software from user requirements, preferences, installed versions, licenses, models, platform maturity, and resource limits; for resumable FITS/XISF processing with visual feedback; or for adaptive planning of unvalidated mono/LRGB/narrowband data.
+description: Inspect, calibrate, clean, register, integrate, visually refine, and export astrophotography through one environment-aware workflow that routes between Siril and PixInsight main backends and optional RC-Astro, GraXpert, StarNet, and SETI Astro processors. Use for color-camera or OSC deep-sky and comet data; for selecting astronomy software from user requirements, preferences, installed versions, licenses, models, platform maturity, and resource limits; for resumable FITS/XISF processing with visual feedback; or for adaptive planning of unvalidated mono/LRGB/narrowband data.
 ---
 
 # Astro Processing
 
-Use one user-visible workflow while keeping each software implementation isolated behind an adapter. Treat Siril and PixInsight as mutually exclusive main backends for a run unless the user explicitly approves a mixed-backend plan. Treat GraXpert, StarNet, and licensed RC-Astro BXT/NXT/SXT as optional stage processors.
+Use one user-visible workflow while keeping each software implementation isolated behind an adapter. Treat Siril and PixInsight as mutually exclusive main backends for a run unless the user explicitly approves a mixed-backend plan. Treat GraXpert, StarNet, licensed RC-Astro BXT/NXT/SXT, and experimental SETI Astro Cosmic Clarity as optional stage processors.
 
 ## Preserve the operating contract
 
@@ -25,6 +25,7 @@ Use one user-visible workflow while keeping each software implementation isolate
 - Read [Siril CLI](references/siril/siril-cli.md) before changing Siril commands or diagnosing Siril failures.
 - Read [Siril calibration policy](references/siril/calibration-policy.md) when calibration metadata disagree or data must be split.
 - Read [optional processors](references/siril/external-processors.md) before installing or running GraXpert, StarNet, or RC-Astro.
+- Read [SETI Astro](references/setiastro.md) before routing or comparing SETI Astro stages.
 - Read [visual feedback](references/siril/visual-feedback.md) before judging previews, references, star layers, or final acceptance.
 
 ## Use the unified CLI
@@ -112,7 +113,47 @@ python3 "$ASTRO" report --run /absolute/run
 python3 "$ASTRO" cleanup --run /absolute/run --profile standard
 ```
 
-Follow the directly linked Siril references for calibration, moving-object processing, visual retries, exports, and cleanup. PixInsight execution remains experimental until its PJSR stages are forward-tested; environment discovery must not be presented as working execution.
+Run a frozen optional processor through a checkpointed attempt instead of invoking its binary by hand:
+
+```bash
+python3 "$ASTRO" stage \
+  --run /absolute/run \
+  --group group-id \
+  --stage background_extraction \
+  --reference /absolute/reference.png \
+  --reference-notes "Protect the faint outer halo"
+```
+
+Stop Siril at a software boundary instead of running duplicate later stages. For example, after accepting external BGE, run only color calibration from that checkpoint, then pass the resulting `color.fit` explicitly to StarNet:
+
+```bash
+python3 "$ASTRO" postprocess \
+  --run /absolute/run \
+  --start-stage color \
+  --end-stage color \
+  --from-checkpoint /absolute/accepted-background.fit
+
+python3 "$ASTRO" stage \
+  --run /absolute/run \
+  --group group-id \
+  --stage star_separation \
+  --input /absolute/attempt/color.fit
+```
+
+Open every generated `preview-*.png` and compare it with the input, model/layer previews, and any user references at overview and 100%. Do not promote a command merely because it exited successfully. Record the visual result:
+
+```bash
+python3 "$ASTRO" review-stage \
+  --run /absolute/run \
+  --group group-id \
+  --attempt background-extraction-001 \
+  --verdict accept \
+  --notes "Gradient removed; no target structure in the background model"
+```
+
+For a bad result, use `--verdict reject --issue "..."`, adjust a copied JSON parameter file, and run `stage` again. Every retry gets a new directory; never overwrite the rejected checkpoint. Use `--processor` only for the frozen selection or recorded fallback. SETI Astro denoise and starless runs additionally require `--ab-candidate`; an accepted A/B result is not promoted until a route change is confirmed. Super resolution is not exposed by the adapter.
+
+Follow the directly linked references for calibration, moving-object processing, routed stages, visual retries, exports, and cleanup. PixInsight execution remains experimental until its PJSR stages are forward-tested; environment discovery must not be presented as working execution.
 
 ## Install only after consolidated approval
 

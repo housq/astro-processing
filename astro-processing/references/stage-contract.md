@@ -4,15 +4,17 @@ Use the common semantic stages without forcing identical commands or intermediat
 
 ```text
 inspect → calibrate → clean → register → integrate
-→ background extraction → color calibration → deconvolution
+→ residual satellite cleanup → background extraction → color calibration → deconvolution/detail restoration
 → star separation → denoise → stretch → star reconstruction → export
 ```
 
 Hard constraints:
 
 - Calibration masters and calibrated lights remain linear.
+- Prefer registration/integration rejection for satellite trails. Run a post-stack satellite-removal model only when a residual trail is visually confirmed, and compare it against the untouched linear stack.
 - Background extraction precedes PCC/SPCC unless a documented implementation requires otherwise.
 - Deconvolution/BXT requires linear input and runs before denoise, star separation, and stretch.
+- Treat AI detail restoration like deconvolution unless its implementation documents a different domain. Use conservative settings on linear data and reject invented micro-detail or ringing.
 - Star separation retains both starless and star layers and records target leakage checks.
 - Linear-only tools never run after stretch.
 - PCC/SPCC requires actual success evidence; process exit alone is insufficient.

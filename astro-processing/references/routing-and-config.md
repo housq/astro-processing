@@ -28,6 +28,12 @@ processors:
   star_separation:
     mode: prefer
     candidates: [sxt, starnet, main]
+  detail_restoration:
+    mode: disabled
+    candidates: []
+  satellite_removal:
+    mode: disabled
+    candidates: []
 behavior:
   confirm_first_route: true
 ```
@@ -54,3 +60,5 @@ Do not ask again for ordinary parameter retries or a recorded fallback. Ask agai
 - `disabled`: skip the stage.
 
 Environment presence is not capability. Require executable, compatible version, model/weights, active license where relevant, and validated stage maturity. Record the actual selection, source, maturity, version, path, fallback chain, and fallback reason in the run snapshot.
+
+SETI Astro is opt-in and experimental. Enable only `detail_restoration` or `satellite_removal` in a confirmed `quality` route, for example with `mode: require` and `candidates: [setiastro]`. Do not route its background extraction, color calibration, stacking, or super resolution. Its denoise and starless commands are explicit A/B candidates only and never silently replace the frozen route.
