@@ -1,0 +1,4 @@
+interface:
+  display_name: "Astro Processing"
+  short_description: "Route and run reproducible astrophotography workflows"
+  default_prompt: "Use $astro-processing to inspect this astrophotography dataset, preflight available software, confirm one recommended route, process it, visually refine it, and export reproducible results."

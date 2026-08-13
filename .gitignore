@@ -8,6 +8,7 @@ __pycache__/
 *.py[cod]
 .venv/
 venv/
+.astro-processing/project.local.yaml
 
 # Local astronomy inputs, outputs, applications, and models
 ngc57-siril-output/

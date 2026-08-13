@@ -1,4 +1,4 @@
 interface:
-  display_name: "Siril Deep-Sky Processing"
-  short_description: "Calibrate, separate stars, and finish OSC or comet data"
-  default_prompt: "Use $siril-deep-sky-processing to calibrate, stack or dual-register, run optional AI BGE/star separation/denoise, visually refine, and export this OSC deep-sky dataset."
+  display_name: "Siril Processing (Compatibility)"
+  short_description: "Forward former Siril workflows to Astro Processing"
+  default_prompt: "Use $siril-deep-sky-processing to forward this former Siril-only request through the unified $astro-processing workflow."
