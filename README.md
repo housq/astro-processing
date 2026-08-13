@@ -25,3 +25,7 @@ PixInsight is represented by an experimental discovery and planning adapter. PJS
 ## Data policy
 
 Observation data, calibration frames, generated runs, downloaded applications, AI models, and machine-local caches are not stored in this repository. Each skill keeps scripts, references, safety rules, and reproducibility metadata in source control while large image products remain outside Git.
+
+## License
+
+This repository's code and documentation are licensed under the [Apache License 2.0](LICENSE). Referenced astronomy applications, plugins, and model files are not distributed here and remain subject to their respective licenses.
