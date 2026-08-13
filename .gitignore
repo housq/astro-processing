@@ -1,0 +1,31 @@
+# macOS and editor state
+.DS_Store
+.idea/
+.vscode/
+
+# Python caches and local environments
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Local astronomy inputs, outputs, applications, and models
+ngc57-siril-output/
+tools/
+*.fit
+*.fits
+*.xisf
+*.ser
+*.cr2
+*.cr3
+*.nef
+*.arw
+*.dng
+*.onnx
+*.pt
+*.dmg
+
+# Local smoke-test and command-discovery artifacts
+params-*.json
+help-*.ssf
+list-*.ssf
