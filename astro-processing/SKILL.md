@@ -99,7 +99,7 @@ Execution profiles:
 
 Do not claim a whole software package is validated. Maturity belongs to platform × software × stage × data profile. After a software upgrade, treat affected capabilities as experimental until smoke-tested.
 
-## Execute the Siril compatibility path
+## Execute the Siril backend
 
 Phase one delegates validated pixel processing to the bundled Siril engine. After the unified plan freezes the route, use the same unified CLI for Siril-backed run commands:
 

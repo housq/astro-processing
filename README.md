@@ -5,7 +5,6 @@ Reusable Codex skills and deterministic helpers for astrophotography processing.
 ## Included skills
 
 - [`astro-processing`](astro-processing/SKILL.md): the single environment-aware user entry. It discovers Siril, PixInsight, GraXpert, StarNet, and RC-Astro capabilities; resolves preferences and support maturity; freezes a confirmed run route; and delegates pixel processing through isolated adapters.
-- [`siril-deep-sky-processing`](siril-deep-sky-processing/SKILL.md): a temporary compatibility entry for former Siril-only prompts. Its CLI forwards to the Siril engine maintained by `astro-processing`.
 
 ## Planned expansion
 

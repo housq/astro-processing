@@ -1,4 +1,0 @@
-interface:
-  display_name: "Siril Processing (Compatibility)"
-  short_description: "Forward former Siril workflows to Astro Processing"
-  default_prompt: "Use $siril-deep-sky-processing to forward this former Siril-only request through the unified $astro-processing workflow."
