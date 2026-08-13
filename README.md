@@ -1,6 +1,6 @@
 # Astro Processing
 
-Reusable Codex skills and deterministic helpers for astrophotography processing.
+Reusable Agent Skills and deterministic helpers for astrophotography processing.
 
 ## Included skills
 
@@ -8,33 +8,52 @@ Reusable Codex skills and deterministic helpers for astrophotography processing.
 
 ## Installation
 
-### Ask Codex to install it
+### Ask a general-purpose Agent to install it
 
-Send the following prompt to the Agent. The repository is private, so the machine must already have access through GitHub credentials; never paste an access token into the prompt.
+Send the following prompt to any Agent that can access GitHub and manage filesystem-based skills. It deliberately does not assume Codex, a particular installer, or a fixed skills directory.
 
 ```text
-Use $skill-installer to install the astro-processing skill from the private GitHub repository housq/astro-processing, path astro-processing, ref main. Install it into the standard Codex skills directory. Use existing GitHub credentials, verify that SKILL.md and agents/openai.yaml were installed, and tell me when it will become available. If the destination already exists or authentication is unavailable, stop and explain the safe update or authentication step instead of overwriting anything. Do not install Siril, PixInsight, GraXpert, StarNet, RC-Astro, models, or licenses as part of installing the skill.
+Install the `astro-processing` Agent Skill from the private GitHub repository
+https://github.com/housq/astro-processing, branch `main`, source subdirectory
+`astro-processing`.
+
+Before changing anything:
+1. Inspect your own product documentation, configuration, and existing installed
+   skills to determine whether you support `SKILL.md`-based skills and identify
+   the correct user-scoped skills directory. Do not assume a Codex-specific
+   installer or path.
+2. Check whether that destination already contains `astro-processing`. If it
+   does, do not overwrite it. Report the installed and source revisions or
+   differences, then ask me before performing a safe backup and update.
+3. Use existing GitHub authentication available on this machine (for example an
+   authenticated GitHub integration, `gh`, Git credential helper, or SSH). Never
+   ask me to paste a token or private key into chat. If access is unavailable,
+   stop and tell me which normal authentication step is required.
+
+If the platform supports this skill format and the destination is free:
+1. Fetch the repository at `main` into a temporary location, using sparse
+   checkout or an authenticated download when practical.
+2. Install only the repository's `astro-processing` directory into the detected
+   user-scoped skills directory, preserving `SKILL.md`, `agents/`, `scripts/`,
+   and `references/` exactly. Do not install the repository root as the skill.
+3. Verify that the installed `SKILL.md` frontmatter names the skill
+   `astro-processing`, that `agents/openai.yaml` exists, and that all relative
+   files referenced by `SKILL.md` are present. Run your platform's skill
+   validator if one exists.
+4. Activate or reload skills using the normal mechanism for your platform. Tell
+   me whether the skill is usable immediately or needs a new turn/session.
+5. Report the detected Agent product, install destination, source commit hash,
+   validation result, and activation status.
+
+Installing the skill itself must not install or modify Siril, PixInsight,
+GraXpert, StarNet, RC-Astro, model files, licenses, package managers, or system
+packages. Those are separate actions that require later environment checks and
+my explicit approval. If your platform cannot install `SKILL.md`-based skills,
+do not claim success; explain the incompatibility and the least invasive way to
+use this repository as task instructions instead.
 ```
 
-The Agent should use Codex's bundled `skill-installer`, which installs to `$CODEX_HOME/skills/astro-processing` or `~/.codex/skills/astro-processing` when `CODEX_HOME` is unset. The skill is available to Codex on the next turn after installation.
-
-### Manual fallback
-
-With authenticated Git access, clone the repository to a temporary directory and copy only the skill folder into the standard skills directory:
-
-```bash
-install_root="${CODEX_HOME:-$HOME/.codex}/skills"
-temporary_repo="$(mktemp -d)/astro-processing-repo"
-git clone --depth 1 --filter=blob:none --sparse git@github.com:housq/astro-processing.git "$temporary_repo"
-git -C "$temporary_repo" sparse-checkout set astro-processing
-test ! -e "$install_root/astro-processing"
-mkdir -p "$install_root"
-cp -R "$temporary_repo/astro-processing" "$install_root/astro-processing"
-test -f "$install_root/astro-processing/SKILL.md"
-test -f "$install_root/astro-processing/agents/openai.yaml"
-```
-
-The manual fallback deliberately refuses to overwrite an existing installation. Use Git history or a reviewed update procedure when replacing one.
+The repository is private, so the Agent still needs GitHub access granted through its environment. The prompt keeps authentication, overwrite, dependency installation, and platform compatibility as explicit safety boundaries.
 
 ## Planned expansion
 
