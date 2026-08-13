@@ -13,12 +13,9 @@ Send this prompt to a general-purpose Agent:
 ```text
 Install the `astro-processing` Agent Skill from
 https://github.com/housq/astro-processing/tree/main/astro-processing.
-Detect the correct user-level skill directory and installation method for your
-environment, install the complete `astro-processing` folder, validate its
-`SKILL.md` and referenced files, then report the install path and whether a
-reload or new session is required. If an existing installation would be
-overwritten or this skill format is unsupported, stop and explain instead.
-Do not install the astronomy applications or models yet.
+Install the complete folder in your user-level skills directory, verify
+`SKILL.md` and its referenced files, and report the path and reload requirement.
+Do not overwrite an existing installation or install astronomy dependencies.
 ```
 
 ## Planned expansion
