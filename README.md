@@ -18,9 +18,9 @@ Install the complete folder in your user-level skills directory, verify
 Do not overwrite an existing installation or install astronomy dependencies.
 ```
 
-## Planned expansion
+## PixInsight scope
 
-PixInsight is represented by an experimental discovery and planning adapter. PJSR post-integration stages will be added first, followed by full WBPP calibration and integration after forward validation. Other software remains isolated behind adapters rather than becoming competing user-visible skills.
+PixInsight has a constrained post-integration OSC PJSR adapter that generates a reviewable script and executes it through a running GUI instance. Its exact macOS/PI/stage/data validation matrix is recorded in [`pixinsight.md`](astro-processing/references/pixinsight.md). WBPP, SPCC, DBE, automated ImageSolver, other data types, and other platform/version tuples remain experimental. Other software stays isolated behind adapters rather than becoming competing user-visible skills.
 
 ## Data policy
 

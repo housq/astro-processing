@@ -100,9 +100,9 @@ Execution profiles:
 
 Do not claim a whole software package is validated. Maturity belongs to platform × software × stage × data profile. After a software upgrade, treat affected capabilities as experimental until smoke-tested.
 
-## Execute the Siril backend
+## Execute a frozen backend
 
-Phase one delegates validated pixel processing to the bundled Siril engine. After the unified plan freezes the route, use the same unified CLI for Siril-backed run commands:
+After the unified plan freezes the route, use the same unified CLI. Siril supports the original raw-data commands:
 
 ```bash
 python3 "$ASTRO" run --run /absolute/run
@@ -153,7 +153,24 @@ python3 "$ASTRO" review-stage \
 
 For a bad result, use `--verdict reject --issue "..."`, adjust a copied JSON parameter file, and run `stage` again. Every retry gets a new directory; never overwrite the rejected checkpoint. Use `--processor` only for the frozen selection or recorded fallback. SETI Astro denoise and starless runs additionally require `--ab-candidate`; an accepted A/B result is not promoted until a route change is confirmed. Super resolution is not exposed by the adapter.
 
-Follow the directly linked references for calibration, moving-object processing, routed stages, visual retries, exports, and cleanup. PixInsight execution remains experimental until its PJSR stages are forward-tested; environment discovery must not be presented as working execution.
+Follow the directly linked references for calibration, moving-object processing, routed stages, visual retries, exports, and cleanup. PixInsight discovery alone must not be presented as working execution; apply only the exact stage/data/platform maturity recorded in its validation matrix.
+
+For a post-integration OSC color XISF, declare the semantic state and require PixInsight explicitly:
+
+```bash
+python3 "$ASTRO" preflight \
+  --input /absolute/integrated-linear.xisf \
+  --output /absolute/output \
+  --backend pixinsight \
+  --input-state integrated-linear \
+  --data-type osc-color \
+  --profile balanced
+python3 "$ASTRO" plan ... --confirm-route
+python3 "$ASTRO" run --run /absolute/output/run-id --dry-run
+python3 "$ASTRO" run --run /absolute/output/run-id
+```
+
+Read [pixinsight.md](references/pixinsight.md) before removing `--dry-run`. PixInsight uses XISF checkpoints and a generated PJSR script. The implemented launcher submits `--execute=<script>` to a running GUI instance and waits for a unique result JSON; it is not a headless CLI. Add `--rc-astro --confirm-rc-astro-license` to preflight and plan only after the user confirms active local BXT/SXT/NXT licenses. Never store license data.
 
 ## Install only after consolidated approval
 

@@ -17,7 +17,7 @@ if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
 from adapters import graxpert, pixinsight, rc_astro, setiastro, siril, starnet  # noqa: E402
-from adapters import siril_engine  # noqa: E402
+from adapters import pixinsight_engine, siril_engine  # noqa: E402
 from config import ConfigError, find_project_root, resolve_config  # noqa: E402
 from external_executor import ExternalExecutionError, REVIEW_VERDICTS, ROUTED_STAGES, review_stage, run_stage  # noqa: E402
 from router import RoutingError, build_route  # noqa: E402
@@ -41,7 +41,7 @@ def package_managers() -> list[dict[str, str]]:
     return managers
 
 
-def discover(project_root: Path, explicit_siril: str | None = None) -> dict[str, Any]:
+def discover(project_root: Path, explicit_siril: str | None = None, explicit_pixinsight: str | None = None) -> dict[str, Any]:
     return {
         "environment": {
             "os": platform.system(),
@@ -50,7 +50,7 @@ def discover(project_root: Path, explicit_siril: str | None = None) -> dict[str,
             "package_managers": package_managers(),
         },
         "siril": siril.discover(explicit_siril),
-        "pixinsight": pixinsight.discover(),
+        "pixinsight": pixinsight.discover(explicit_pixinsight),
         "graxpert": graxpert.discover(project_root),
         "starnet": starnet.discover(),
         "setiastro": setiastro.discover(),
@@ -81,9 +81,75 @@ def make_overrides(args: argparse.Namespace) -> dict[str, Any]:
     return value
 
 
+def _pixinsight_preflight(
+    args: argparse.Namespace,
+    project_root: Path,
+    config: dict[str, Any],
+    sources: dict[str, str],
+    loaded: list[str],
+    capabilities: dict[str, Any],
+) -> dict[str, Any]:
+    profile, blockers = pixinsight_engine.inspect_declared_input(args.input, args.input_state, args.data_type)
+    rc_enabled = bool(args.rc_astro)
+    if rc_enabled:
+        capabilities["rc_astro"] = {
+            "available": bool(args.confirm_rc_astro_license),
+            "installed": True,
+            "license": "active" if args.confirm_rc_astro_license else "unconfirmed",
+            "maturity": capabilities["pixinsight"].get("maturity", "experimental"),
+            "provider": "PixInsight process modules",
+            "stages": {stage: capabilities["pixinsight"].get("stages", {}).get(stage, "experimental") for stage in ("deconvolution", "star_separation", "denoise")},
+        }
+        if not args.confirm_rc_astro_license:
+            blockers.append({"code": "RC_ASTRO_LICENSE_UNCONFIRMED", "message": "RC-Astro execution requires --confirm-rc-astro-license; no license data is stored"})
+    route = build_route(config, capabilities, "pixinsight")
+    for stage, selected in (("background_extraction", "pixinsight"), ("deconvolution", "disabled"),
+                            ("star_separation", "disabled"), ("denoise", "pixinsight")):
+        route["processors"][stage] = {
+            "selected": selected, "mode": "require" if selected != "disabled" else "disabled",
+            "maturity": capabilities["pixinsight"].get("stages", {}).get(stage, "experimental") if selected != "disabled" else "disabled",
+            "fallbacks": [], "requires_confirmation": selected != "disabled",
+            "reason": "Frozen PixInsight post-integration PJSR route",
+        }
+    if rc_enabled and args.confirm_rc_astro_license:
+        for stage, selected in (("deconvolution", "bxt"), ("star_separation", "sxt"), ("denoise", "nxt")):
+            route["processors"][stage] = {
+                "selected": selected, "mode": "require", "maturity": capabilities["pixinsight"]["stages"][stage],
+                "fallbacks": [], "requires_confirmation": True,
+                "reason": "Explicit licensed PixInsight RC-Astro branch",
+            }
+        route["confirmation_reasons"].append("licensed RC-Astro BXT/SXT/NXT branch explicitly selected")
+    output = args.output.expanduser().resolve() if args.output else pixinsight_engine.default_output(args.input)
+    output.mkdir(parents=True, exist_ok=True)
+    free = shutil.disk_usage(output).free
+    estimated = max(profile["bytes"] * 12, 2 * 2**30)
+    reserve = max(5 * 2**30, int(estimated * 0.1))
+    if free < estimated + reserve:
+        blockers.append({"code": "INSUFFICIENT_DISK", "message": f"Need {estimated + reserve} bytes including reserve; only {free} available"})
+    degradations = [
+        {"code": "PIXINSIGHT_RUNNING_GUI_REQUIRED", "message": "Execution uses --execute IPC and requires a running PixInsight GUI; it is not headless"},
+        {"code": "CLASSIC_COLOR_NONPHOTOMETRIC", "message": "SPCC is skipped; classic BackgroundNeutralization + ColorCalibration is non-photometric"},
+        {"code": "IMAGE_SOLVER_NOT_AUTOMATED", "message": "ImageSolver remains GUI-assisted/experimental and is not part of this adapter run"},
+        {"code": "FITS_CROSS_SOFTWARE_EXPERIMENTAL", "message": "32-bit FITS save/reopen checks are implemented; an external-software round trip is not validated"},
+    ]
+    return {
+        "schema_version": 1,
+        "input": str(args.input.expanduser().resolve()), "output": str(output), "project_root": str(project_root),
+        "data_profile": "post-integration-osc-color", "support_level": capabilities["pixinsight"].get("maturity", "experimental"),
+        "classification": {"integrated_linear_osc": 1}, "groups": [], "declared_input": profile,
+        "route": route, "resources": {"estimated_bytes": estimated, "reserve_bytes": reserve, "free_bytes": free},
+        "blockers": blockers, "degradations": degradations, "requires_confirmation": True,
+        "network_catalog_access": {"available": None, "maturity": "not-required", "reason": "SPCC skipped"},
+        "accepted_warnings": [], "loaded_config_files": loaded, "capabilities": capabilities,
+        "pixinsight_plan": {"rc_astro": rc_enabled, "license_confirmed": bool(args.confirm_rc_astro_license), "input_state": args.input_state, "data_type": args.data_type},
+    }
+
+
 def preflight_payload(args: argparse.Namespace, project_root: Path) -> tuple[dict[str, Any], dict[str, Any], dict[str, str], list[str]]:
     config, sources, loaded = resolve_config(project_root, make_overrides(args))
-    capabilities = discover(project_root, getattr(args, "siril", None))
+    capabilities = discover(project_root, getattr(args, "siril", None), getattr(args, "pixinsight", None))
+    if args.backend == "pixinsight":
+        return _pixinsight_preflight(args, project_root, config, sources, loaded, capabilities), config, sources, loaded
     files, plan = siril.inspect_input(args.input, args.dark_temp_tolerance)
     profile, support = data_profile(plan, args.moving_target)
     route = build_route(config, capabilities, args.backend)
@@ -170,6 +236,11 @@ def add_route_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--moving-target", action="store_true")
     parser.add_argument("--dark-temp-tolerance", type=float, default=5.0)
     parser.add_argument("--siril")
+    parser.add_argument("--pixinsight", help="explicit PixInsight executable")
+    parser.add_argument("--input-state", choices=("unknown", "integrated-linear"), default="unknown")
+    parser.add_argument("--data-type", choices=("unknown", "osc-color", "mono", "lrgb", "narrowband"), default="unknown")
+    parser.add_argument("--rc-astro", action="store_true", help="select the licensed PixInsight BXT/SXT/NXT branch")
+    parser.add_argument("--confirm-rc-astro-license", action="store_true", help="confirm active local RC-Astro licenses without recording license data")
     parser.add_argument("--accept-warning", action="append", default=[], help="accept one displayed warning code for this run snapshot")
     parser.add_argument("--skip-network-check", action="store_true", help="record catalog network as unchecked; never treat this as online calibration success")
 
@@ -181,6 +252,7 @@ def build_parser() -> argparse.ArgumentParser:
     doctor = sub.add_parser("doctor", help="discover main backends, optional processors, package managers, versions, and maturity")
     doctor.add_argument("--project", type=Path, default=Path.cwd())
     doctor.add_argument("--siril")
+    doctor.add_argument("--pixinsight")
     doctor.add_argument("--json", type=Path)
     inspect = sub.add_parser("inspect", help="classify inputs using the validated Siril OSC scanner")
     inspect.add_argument("--input", type=Path, required=True)
@@ -218,15 +290,38 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _passthrough_backend(arguments: list[str]) -> int:
+    if arguments[0] != "run":
+        return siril.run(arguments)
+    try:
+        index = arguments.index("--run")
+        run_dir = Path(arguments[index + 1]).expanduser().resolve()
+    except (ValueError, IndexError):
+        return siril.run(arguments)
+    marker = run_dir / ".astro-run.json"
+    if marker.is_file():
+        try:
+            backend = json.loads(marker.read_text(encoding="utf-8")).get("main_backend")
+        except (OSError, json.JSONDecodeError) as exc:
+            raise AstroError(f"Invalid unified run marker {marker}: {exc}") from exc
+        if backend == "pixinsight":
+            return pixinsight_engine.run(arguments)
+    return siril.run(arguments)
+
+
 def main(argv: list[str] | None = None) -> int:
     arguments = list(sys.argv[1:] if argv is None else argv)
     if arguments and arguments[0] in PASSTHROUGH:
-        return siril.run(arguments)
+        try:
+            return _passthrough_backend(arguments)
+        except (AstroError, pixinsight_engine.PipelineError, OSError) as exc:
+            print(f"ERROR: {exc}", file=sys.stderr)
+            return 2
     args = build_parser().parse_args(arguments)
     try:
         if args.command == "doctor":
             project = find_project_root(args.project)
-            result = discover(project, args.siril)
+            result = discover(project, args.siril, args.pixinsight)
             print(json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True))
             if args.json:
                 args.json.expanduser().resolve().write_text(json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
@@ -238,12 +333,6 @@ def main(argv: list[str] | None = None) -> int:
         elif args.command in {"preflight", "plan"}:
             project = find_project_root(args.project)
             payload, config, sources, loaded = preflight_payload(args, project)
-            if args.backend == "pixinsight" and args.command == "preflight":
-                payload["blockers"].append({
-                    "code": "PIXINSIGHT_EXECUTION_NOT_IMPLEMENTED",
-                    "message": "Phase one can discover and plan PixInsight, but its PJSR execution adapter is not yet implemented",
-                })
-                payload["requires_confirmation"] = True
             print_preflight(payload)
             serializable = {key: value for key, value in payload.items() if not key.startswith("_")}
             if args.json:
@@ -256,10 +345,12 @@ def main(argv: list[str] | None = None) -> int:
                 if not args.confirm_route:
                     raise AstroError("Initial route has not been confirmed; review preflight and re-run with --confirm-route")
                 main_backend = payload["route"]["main_backend"]["selected"]
-                if main_backend != "siril":
-                    raise AstroError("PixInsight execution is experimental and not implemented in phase one; use --backend siril or wait for the PJSR adapter")
                 output = Path(payload["output"])
-                run_dir = siril_engine.create_run(args.input, output, args.run_id, args.dark_temp_tolerance)
+                if main_backend == "pixinsight":
+                    pi_plan = payload["pixinsight_plan"]
+                    run_dir = pixinsight_engine.create_run(args.input, output, args.run_id, pi_plan["rc_astro"], pi_plan["license_confirmed"])
+                else:
+                    run_dir = siril_engine.create_run(args.input, output, args.run_id, args.dark_temp_tolerance)
                 snapshot = write_run_snapshot(
                     run_dir, args.input, project, config, sources, loaded, payload["capabilities"], payload["route"], serializable,
                     payload["data_profile"], payload["support_level"],
@@ -276,7 +367,10 @@ def main(argv: list[str] | None = None) -> int:
                 args.run, args.group, args.attempt, args.verdict, args.notes, args.issue, args.reference
             ))
         return 0
-    except (AstroError, ConfigError, RoutingError, ExternalExecutionError, siril_engine.PipelineError, OSError) as exc:
+    except (
+        AstroError, ConfigError, RoutingError, ExternalExecutionError,
+        siril_engine.PipelineError, pixinsight_engine.PipelineError, OSError,
+    ) as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 2
 

@@ -1,0 +1,50 @@
+{
+  "schema_version": 1,
+  "date": "2026-08-14",
+  "environment": {
+    "host_architecture": "arm64",
+    "os": "macOS 15.6.1 (24G90)",
+    "pixinsight": "1.9.3 build 1646",
+    "pixinsight_executable_architecture": "x86_64"
+  },
+  "execution": {
+    "headless": false,
+    "launch_shape": "<PI_APP>/Contents/MacOS/PixInsight --execute=<RUN>/scripts/pixinsight-pipeline.js",
+    "mechanism": "IPC to a running PixInsight GUI",
+    "success_marker": "ASTRO_PROCESSING_PIXINSIGHT_OK"
+  },
+  "input": {
+    "synthetic": true,
+    "width": 96,
+    "height": 64,
+    "channels": 3,
+    "bits_per_sample": 32,
+    "sample_format": "real",
+    "declared_linear": true,
+    "wcs": false
+  },
+  "stages": [
+    {"name": "synthetic-create", "ok": true},
+    {"name": "export-and-reopen", "ok": true}
+  ],
+  "outputs": [
+    {"name": "synthetic-smoke.xisf", "width": 96, "height": 64, "channels": 3, "bits_per_sample": 32, "sample_format": "real", "reopened": true},
+    {"name": "synthetic-smoke.fits", "width": 96, "height": 64, "channels": 3, "bits_per_sample": 32, "sample_format": "real", "reopened": true},
+    {"name": "synthetic-smoke.tif", "width": 96, "height": 64, "channels": 3, "bits_per_sample": 32, "sample_format": "real", "reopened": true},
+    {"name": "synthetic-smoke.png", "width": 96, "height": 64, "channels": 3, "bits_per_sample": 8, "sample_format": "integer", "reopened": true},
+    {"name": "synthetic-smoke.jpg", "width": 96, "height": 64, "channels": 3, "bits_per_sample": 8, "sample_format": "integer", "reopened": true}
+  ],
+  "boundary_checks": {
+    "dimensions": true,
+    "channels": true,
+    "bit_depth": true,
+    "declared_linear_state": true,
+    "wcs_state": true,
+    "orientation_signature": true
+  },
+  "limitations": [
+    "Synthetic smoke had no astrometric solution; it verified that the no-WCS state did not change.",
+    "No external-software FITS round trip was performed.",
+    "WBPP, SPCC, DBE, automated ImageSolver, mono/LRGB/narrowband, and other platforms remain experimental."
+  ]
+}
