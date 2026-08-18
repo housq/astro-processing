@@ -40,12 +40,7 @@ Generated artifact classes were XISF checkpoints/final, TIFF, PNG, and JPEG. The
 
 The revised adapter ran a fresh synthetic smoke and an authenticated RC-Astro capability probe on 2026-08-18. A representative 1554×1034 full-field downsample of a real integrated OSC Float32 stack then completed the consolidated ABE → classic color → BXT → SXT → NXT → layer finish → export route in isolated attempts. The first technical success entered `needs_review` and was visually rejected because the stellar field dominated the faint target. A tuning file changed only the allowlisted layer finish parameters; the second execution used a distinct directory and execution ID, entered `needs_review`, and was accepted after preview inspection. A later diagnostic-preview attempt was rejected because its linked ABE model stretch was visually unusable. The final attempt used an unlinked display-only diagnostic stretch, produced reviewable ABE corrected/model, starless/stars, and final previews, and was accepted. Only acceptance changed the run to `complete`; the final selected attempt is the last one.
 
-Both attempts generated and reopened XISF, 32-bit FITS, 32-bit TIFF, 8-bit PNG, and 8-bit JPEG at 1554×1034×3. The input had no WCS; the checks verified that WCS absence, dimensions, channels, bit depth, declared linear/nonlinear state, and orientation remained consistent. Sanitized state, parameters, output metadata, probe results, and limitations are in `pixinsight-review-regression-summary.json`. The two review-sized PNGs are the only real-image artifacts retained.
-
-- Rejected visual evidence: `pixinsight-review-rejected.png`.
-- Accepted visual evidence: `pixinsight-review-accepted.png`.
-- Accepted ABE diagnostics: `pixinsight-review-abe-corrected.png`, `pixinsight-review-abe-model.png`.
-- Accepted RC layer diagnostics: `pixinsight-review-starless.png`, `pixinsight-review-stars.png`.
+All four attempts generated and reopened XISF, 32-bit FITS, 32-bit TIFF, 8-bit PNG, and 8-bit JPEG at 1554×1034×3. The input had no WCS; the checks verified that WCS absence, dimensions, channels, bit depth, declared linear/nonlinear state, and orientation remained consistent. Sanitized state, parameters, output metadata, probe results, review findings, and limitations are in `pixinsight-review-regression-summary.json`. ABE corrected/model, RC starless/stars, rejected final, and accepted final previews were reviewed locally. Their observation-derived pixels are intentionally not committed.
 
 ## Reproduction checks
 
@@ -63,5 +58,7 @@ git diff --check
 All five dependency-free test programs passed every case after rebasing onto the latest `main`; compilation and JSON parsing passed, the skill validator returned `Skill is valid!`, and `git diff --check` returned no errors. The temporary PyYAML copy was used only to run the validator and is outside the repository.
 
 ## Limits
+
+The captured PixInsight runs predate the final Python-side frozen-contract, concurrency-lock, and strict-manifest hardening. Those gates have dependency-free regression coverage, but this exact revision still needs a fresh PixInsight-host synthetic smoke plus representative visual run before its runtime evidence can be considered current.
 
 WBPP itself, calibration, registration, integration, DBE, SPCC, automated ImageSolver, external FITS round trips, other OS/architectures, other PI builds, and other data types were not validated. ImageSolver was completed manually in the GUI in the representative workflow and is not claimed as automated. RC-Astro licenses were confirmed by the user; no license information is recorded.

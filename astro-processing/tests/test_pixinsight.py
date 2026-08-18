@@ -84,22 +84,94 @@ def frozen_run(root: Path, rc_enabled: bool = False) -> Path:
     return run_dir
 
 
-def successful_result(params: dict, attempt_dir: Path, marker: str = pixinsight_engine.SUCCESS_MARKER) -> dict:
-    export = attempt_dir / "exports" / "final.xisf"
-    preview = attempt_dir / "previews" / "review.png"
-    export.write_bytes(b"xisf-evidence")
-    preview.write_bytes(b"png-evidence")
+def successful_result(
+    params: dict,
+    attempt_dir: Path,
+    marker: str = pixinsight_engine.SUCCESS_MARKER,
+    rc_enabled: bool | None = None,
+) -> dict:
+    rc_enabled = bool(params.get("stages", {}).get("rc_astro", {}).get("enabled")) if rc_enabled is None else rc_enabled
+    attempt_dir.joinpath("exports").mkdir(parents=True, exist_ok=True)
+    attempt_dir.joinpath("previews").mkdir(parents=True, exist_ok=True)
+    files = []
+    for suffix, (bits, is_real) in pixinsight_engine.EXPORT_CONTRACT.items():
+        path = attempt_dir / "exports" / f"final{suffix}"
+        path.write_bytes(b"artifact")
+        files.append({
+            "path": str(path),
+            "sameDimensions": True,
+            "sameChannels": True,
+            "bitDepthOK": True,
+            "orientationOK": True,
+            "wcsPreserved": True,
+            "width": 96,
+            "height": 64,
+            "channels": 3,
+            "bitsPerSample": bits,
+            "isReal": is_real,
+            "linear": False,
+        })
+    preview_names = pixinsight_engine.PIPELINE_PREVIEWS[rc_enabled]
+    previews = []
+    for name in sorted(preview_names):
+        path = attempt_dir / "previews" / name
+        path.write_bytes(b"preview")
+        previews.append(str(path))
+    stage_evidence: dict[str, list[str]] = {
+        "background-extraction": ["01-abe-linear.xisf", "01-abe-model.xisf"],
+        "color-calibration": ["02-bn-linear.xisf", "02-color-linear.xisf"],
+        "denoise": ["05-nxt-starless-linear.xisf" if rc_enabled else "03-mlt-linear.xisf"],
+    }
+    if rc_enabled:
+        stage_evidence.update({
+            "deconvolution": ["03-bxt-linear.xisf"],
+            "star-separation": ["04-starless-linear.xisf", "04-stars-linear.xisf"],
+        })
+    checkpoints = attempt_dir / "checkpoints"
+    checkpoints.mkdir(parents=True, exist_ok=True)
+    stages = []
+    for name in pixinsight_engine.PIPELINE_STAGES[rc_enabled]:
+        paths = []
+        for filename in stage_evidence.get(name, []):
+            path = checkpoints / filename
+            path.write_bytes(b"checkpoint")
+            paths.append({"path": str(path)})
+        stage = {"stage": name, "ok": True}
+        if paths:
+            stage["evidence"] = {"artifacts": paths}
+        stages.append(stage)
     return {
         "schema_version": 1,
+        "mode": "pipeline",
         "ok": True,
         "execution_id": params["execution_id"],
         "successMarker": marker,
+        "pixinsight": {
+            "versionMajor": 1,
+            "versionMinor": 8,
+            "versionRelease": 9,
+            "versionRevision": 3,
+            "versionBuild": 0,
+        },
         "execution": {
             "frozenExecutable": params.get("frozen_executable"),
             "routeFingerprint": params.get("route_fingerprint"),
+            "params": str(attempt_dir / "params.json"),
         },
-        "exports": {"files": [{"path": str(export)}]},
-        "previews": [str(preview)],
+        "input": {
+            "width": 96,
+            "height": 64,
+            "channels": 3,
+            "bitsPerSample": 32,
+            "isColor": True,
+            "isReal": True,
+        },
+        "stages": stages,
+        "exports": {
+            "files": files,
+            "fitsBoundary": {"format": "FITS", "bitsPerSample": 32, "isReal": True},
+        },
+        "previews": previews,
     }
 
 
@@ -168,11 +240,16 @@ def test_technical_success_needs_review_and_accept_completes() -> None:
         assert state["status"] == "needs_review"
         attempt = json.loads((run_dir / "attempts" / result["attempt_id"] / "attempt.json").read_text(encoding="utf-8"))
         assert attempt["status"] == "needs_review"
-        expect_pipeline_error(lambda: pixinsight_engine.execute(run_dir, None, 1, True), "needs visual")
+        expect_pipeline_error(lambda: pixinsight_engine.execute(run_dir, None, 1, True), "needs_review")
+        expect_pipeline_error(
+            lambda: pixinsight_engine.review_attempt(run_dir, result["attempt_id"], "accept", "", []),
+            "Visual review",
+        )
         pixinsight_engine.review_attempt(run_dir, result["attempt_id"], "accept", "visual checks passed", [])
         state = json.loads((run_dir / "state.json").read_text(encoding="utf-8"))
         assert state["status"] == "complete"
         assert state["selected_attempt"] == result["attempt_id"]
+        expect_pipeline_error(lambda: pixinsight_engine.execute(run_dir, None, 1, True), "run is complete")
 
 
 def test_visual_reject_tune_new_attempt_then_accept() -> None:
@@ -190,6 +267,21 @@ def test_visual_reject_tune_new_attempt_then_accept() -> None:
         assert first_params["stages"]["finish"]["single_midtones"] != second_params["stages"]["finish"]["single_midtones"]
         pixinsight_engine.review_attempt(run_dir, second["attempt_id"], "accept", "balanced", [])
         assert json.loads((run_dir / "state.json").read_text(encoding="utf-8"))["selected_attempt"] == second["attempt_id"]
+
+
+def test_modified_attempt_parameters_cannot_be_reviewed() -> None:
+    with tempfile.TemporaryDirectory() as temp:
+        run_dir = frozen_run(Path(temp))
+        result = run_with_fake_pjsr(run_dir)
+        params_path = run_dir / "attempts" / result["attempt_id"] / "params.json"
+        params_path.chmod(0o644)
+        params = json.loads(params_path.read_text(encoding="utf-8"))
+        params["input"] = str(Path(temp) / "different.xisf")
+        params_path.write_text(json.dumps(params), encoding="utf-8")
+        expect_pipeline_error(
+            lambda: pixinsight_engine.review_attempt(run_dir, result["attempt_id"], "accept", "looks good", []),
+            "parameters have been modified",
+        )
 
 
 def test_locked_route_fields_cannot_be_tuned() -> None:
@@ -220,7 +312,36 @@ def test_route_fingerprint_tampering_is_rejected() -> None:
         frozen = json.loads((run_dir / "frozen-pixinsight.json").read_text(encoding="utf-8"))
         frozen["route"]["processors"]["denoise"]["selected"] = "nxt"
         (run_dir / "frozen-pixinsight.json").write_text(json.dumps(frozen), encoding="utf-8")
-        expect_pipeline_error(lambda: pixinsight_engine.execute(run_dir, None, 1, True), "route has been modified")
+        expect_pipeline_error(lambda: pixinsight_engine.execute(run_dir, None, 1, True), "execution contract")
+
+
+def test_frozen_input_and_rc_contract_tampering_is_rejected() -> None:
+    with tempfile.TemporaryDirectory() as temp:
+        root = Path(temp)
+        run_dir = frozen_run(root)
+        frozen_path = run_dir / "frozen-pixinsight.json"
+        frozen = json.loads(frozen_path.read_text(encoding="utf-8"))
+        replacement = root / "replacement.xisf"
+        replacement.write_bytes(b"different input")
+        frozen["input"] = str(replacement)
+        frozen_path.write_text(json.dumps(frozen), encoding="utf-8")
+        expect_pipeline_error(lambda: pixinsight_engine.execute(run_dir, None, 1, True), "execution contract")
+
+    with tempfile.TemporaryDirectory() as temp:
+        root = Path(temp)
+        run_dir = frozen_run(root)
+        source = root / "integrated-linear.xisf"
+        source.write_bytes(b"same path, changed pixels")
+        expect_pipeline_error(lambda: pixinsight_engine.execute(run_dir, None, 1, True), "execution contract")
+
+    with tempfile.TemporaryDirectory() as temp:
+        run_dir = frozen_run(Path(temp))
+        frozen_path = run_dir / "frozen-pixinsight.json"
+        frozen = json.loads(frozen_path.read_text(encoding="utf-8"))
+        frozen["rc_astro"]["enabled"] = True
+        frozen["rc_astro"]["license_confirmed"] = True
+        frozen_path.write_text(json.dumps(frozen), encoding="utf-8")
+        expect_pipeline_error(lambda: pixinsight_engine.execute(run_dir, None, 1, True), "execution contract")
 
 
 def test_result_id_marker_ok_and_artifacts_are_required() -> None:
@@ -248,6 +369,94 @@ def test_result_id_marker_ok_and_artifacts_are_required() -> None:
         )
 
 
+def test_pipeline_manifest_requires_runtime_stages_formats_and_previews() -> None:
+    with tempfile.TemporaryDirectory() as temp:
+        root = Path(temp)
+        attempt = root / "attempt"
+        (attempt / "exports").mkdir(parents=True)
+        (attempt / "previews").mkdir()
+        params = {"execution_id": "a" * 32, "frozen_executable": str(root / "PixInsight"), "route_fingerprint": "route-1"}
+        result = successful_result(params, attempt)
+        pixinsight_engine.validate_result(result, params["execution_id"], attempt, route_fingerprint="route-1")
+
+        missing_runtime = json.loads(json.dumps(result))
+        missing_runtime.pop("pixinsight")
+        expect_pipeline_error(
+            lambda: pixinsight_engine.validate_result(missing_runtime, params["execution_id"], attempt),
+            "runtime tuple",
+        )
+
+        missing_stage = json.loads(json.dumps(result))
+        missing_stage["stages"].pop()
+        expect_pipeline_error(
+            lambda: pixinsight_engine.validate_result(missing_stage, params["execution_id"], attempt),
+            "stage manifest",
+        )
+
+        missing_format = json.loads(json.dumps(result))
+        missing_format["exports"]["files"].pop()
+        expect_pipeline_error(
+            lambda: pixinsight_engine.validate_result(missing_format, params["execution_id"], attempt),
+            "formats",
+        )
+
+        changed_dimensions = json.loads(json.dumps(result))
+        changed_dimensions["exports"]["files"][0]["width"] = 95
+        expect_pipeline_error(
+            lambda: pixinsight_engine.validate_result(changed_dimensions, params["execution_id"], attempt),
+            "dimensions/channels",
+        )
+
+        escaped_checkpoint = json.loads(json.dumps(result))
+        escaped_checkpoint["stages"][0]["evidence"]["artifacts"][0]["path"] = "/etc/01-abe-linear.xisf"
+        expect_pipeline_error(
+            lambda: pixinsight_engine.validate_result(escaped_checkpoint, params["execution_id"], attempt),
+            "out-of-attempt artifact",
+        )
+
+        missing_preview = json.loads(json.dumps(result))
+        missing_preview["previews"].pop()
+        expect_pipeline_error(
+            lambda: pixinsight_engine.validate_result(missing_preview, params["execution_id"], attempt),
+            "preview manifest",
+        )
+
+
+def test_only_one_current_attempt_can_be_prepared() -> None:
+    with tempfile.TemporaryDirectory() as temp:
+        run_dir = frozen_run(Path(temp))
+        original_validate = pixinsight_engine._validate_current_executable
+        entered = threading.Event()
+        release = threading.Event()
+        errors: list[BaseException] = []
+
+        def blocked_validate(frozen: dict, override: str | None, dry_run: bool) -> Path:
+            entered.set()
+            if not release.wait(2):
+                raise AssertionError("concurrency test timed out")
+            return Path(frozen["executable"])
+
+        def first_execute() -> None:
+            try:
+                pixinsight_engine.execute(run_dir, None, 1, True)
+            except BaseException as exc:  # noqa: BLE001 - surface failures from the worker thread.
+                errors.append(exc)
+
+        try:
+            pixinsight_engine._validate_current_executable = blocked_validate
+            worker = threading.Thread(target=first_execute)
+            worker.start()
+            assert entered.wait(2)
+            expect_pipeline_error(lambda: pixinsight_engine.execute(run_dir, None, 1, True), "preparing")
+            release.set()
+            worker.join(2)
+            assert not worker.is_alive()
+            assert not errors
+        finally:
+            release.set()
+            pixinsight_engine._validate_current_executable = original_validate
+
+
 def test_orphaned_running_attempt_can_reconcile_to_needs_review() -> None:
     with tempfile.TemporaryDirectory() as temp:
         run_dir = frozen_run(Path(temp))
@@ -256,11 +465,60 @@ def test_orphaned_running_attempt_can_reconcile_to_needs_review() -> None:
         attempt = json.loads((attempt_dir / "attempt.json").read_text(encoding="utf-8"))
         attempt["status"] = "running"
         (attempt_dir / "attempt.json").write_text(json.dumps(attempt), encoding="utf-8")
+        state_path = run_dir / "state.json"
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+        state["status"] = "running"
+        state["current_attempt"] = dry["attempt_id"]
+        state_path.write_text(json.dumps(state), encoding="utf-8")
         params = json.loads((attempt_dir / "params.json").read_text(encoding="utf-8"))
         (attempt_dir / "logs" / "result.json").write_text(json.dumps(successful_result(params, attempt_dir)), encoding="utf-8")
         message = pixinsight_engine.reconcile_attempt(run_dir, dry["attempt_id"])
         assert "needs_review" in message
         assert json.loads((run_dir / "state.json").read_text(encoding="utf-8"))["status"] == "needs_review"
+
+
+def test_orphaned_launching_attempt_can_reconcile_or_recover() -> None:
+    with tempfile.TemporaryDirectory() as temp:
+        run_dir = frozen_run(Path(temp))
+        dry = pixinsight_engine.execute(run_dir, None, 1, True)
+        attempt_dir = Path(dry["attempt_dir"])
+        attempt_path = attempt_dir / "attempt.json"
+        attempt = json.loads(attempt_path.read_text(encoding="utf-8"))
+        attempt["status"] = "launching"
+        attempt["launcher_pid"] = 999_999_999
+        attempt_path.write_text(json.dumps(attempt), encoding="utf-8")
+        state_path = run_dir / "state.json"
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+        state["status"] = "launching"
+        state["current_attempt"] = dry["attempt_id"]
+        state_path.write_text(json.dumps(state), encoding="utf-8")
+        message = pixinsight_engine.reconcile_attempt(run_dir, dry["attempt_id"])
+        assert "Recovered orphaned" in message
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+        assert state["status"] == "failed"
+        assert state["current_attempt"] is None
+        retry = pixinsight_engine.execute(run_dir, None, 1, True)
+        assert retry["attempt_id"] != dry["attempt_id"]
+
+    with tempfile.TemporaryDirectory() as temp:
+        run_dir = frozen_run(Path(temp))
+        dry = pixinsight_engine.execute(run_dir, None, 1, True)
+        attempt_dir = Path(dry["attempt_dir"])
+        attempt_path = attempt_dir / "attempt.json"
+        attempt = json.loads(attempt_path.read_text(encoding="utf-8"))
+        attempt["status"] = "launching"
+        attempt_path.write_text(json.dumps(attempt), encoding="utf-8")
+        state_path = run_dir / "state.json"
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+        state["status"] = "launching"
+        state["current_attempt"] = dry["attempt_id"]
+        state_path.write_text(json.dumps(state), encoding="utf-8")
+        params = json.loads((attempt_dir / "params.json").read_text(encoding="utf-8"))
+        (attempt_dir / "logs" / "result.json").write_text(
+            json.dumps(successful_result(params, attempt_dir)), encoding="utf-8"
+        )
+        message = pixinsight_engine.reconcile_attempt(run_dir, dry["attempt_id"])
+        assert "needs_review" in message
 
 
 def test_partial_json_is_retried_until_atomic_result_is_complete() -> None:
@@ -322,22 +580,67 @@ def test_runtime_probe_is_separate_and_fail_closed() -> None:
         root = Path(temp)
         executable = root / "PixInsight"
         executable.write_text("x", encoding="utf-8")
+        attempt = root / "probe" / "attempts" / "probe-001"
+        (attempt / "logs").mkdir(parents=True)
+        (attempt / "scripts").mkdir()
+        script_path = attempt / "scripts" / "pixinsight-pipeline.js"
+        script_path.write_text("probe script", encoding="utf-8")
+        execution_id = "a" * 32
+        result_path = attempt / "logs" / "result.json"
+        params = {
+            "mode": "probe",
+            "execution_id": execution_id,
+            "result": str(result_path),
+            "frozen_executable": str(executable),
+            "route_fingerprint": "capability-probe",
+        }
+        (attempt / "params.json").write_text(json.dumps(params), encoding="utf-8")
+        (attempt / "attempt.json").write_text(json.dumps({
+            "kind": "probe",
+            "status": "complete",
+            "execution_id": execution_id,
+            "executable": str(executable),
+            "params_fingerprint": pixinsight_engine.fingerprint(params),
+            "script": str(script_path),
+            "script_fingerprint": pixinsight_engine.fingerprint(script_path.read_text(encoding="utf-8")),
+            "result": str(result_path),
+        }), encoding="utf-8")
         result = {
+            "schema_version": 1,
+            "mode": "probe",
             "ok": True,
-            "execution_id": "a" * 32,
+            "execution_id": execution_id,
             "successMarker": pixinsight_engine.PROBE_MARKER,
-            "execution": {"frozenExecutable": str(executable)},
+            "execution": {
+                "frozenExecutable": str(executable),
+                "routeFingerprint": "capability-probe",
+                "params": str(attempt / "params.json"),
+            },
+            "pixinsight": {
+                "versionMajor": 1,
+                "versionMinor": 9,
+                "versionRelease": 3,
+                "versionRevision": 0,
+                "versionBuild": 1646,
+            },
+            "stages": [{"stage": "runtime-capability-probe", "ok": True}],
             "rc_astro": {
                 key: {"available": True, "ai_file": pixinsight.RC_ASTRO_MODULES[key]["expected_model"]}
                 for key in ("bxt", "sxt", "nxt")
             },
         }
-        path = root / "probe.json"
-        path.write_text(json.dumps(result), encoding="utf-8")
-        pixinsight_engine.validate_runtime_probe(path, executable)
+        result_path.write_text(json.dumps(result), encoding="utf-8")
+        pixinsight_engine.validate_runtime_probe(result_path, executable)
         result["rc_astro"]["nxt"]["available"] = False
-        path.write_text(json.dumps(result), encoding="utf-8")
-        expect_pipeline_error(lambda: pixinsight_engine.validate_runtime_probe(path, executable), "NXT")
+        result_path.write_text(json.dumps(result), encoding="utf-8")
+        expect_pipeline_error(lambda: pixinsight_engine.validate_runtime_probe(result_path, executable), "NXT")
+        detached = root / "probe.json"
+        detached.write_text(json.dumps(result), encoding="utf-8")
+        expect_pipeline_error(lambda: pixinsight_engine.validate_runtime_probe(detached, executable), "inside a probe attempt")
+
+        params["route_fingerprint"] = "detached-route"
+        (attempt / "params.json").write_text(json.dumps(params), encoding="utf-8")
+        expect_pipeline_error(lambda: pixinsight_engine.validate_runtime_probe(result_path, executable), "route")
 
 
 def test_rc_astro_module_version_and_model_discovery_does_not_set_license() -> None:

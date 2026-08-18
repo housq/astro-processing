@@ -50,8 +50,7 @@
       "success_marker": "ASTRO_PROCESSING_PIXINSIGHT_OK",
       "review": "rejected",
       "issues": ["stellar field dominated the target", "nebular structure was under-emphasized"],
-      "finish": {"starless_midtones": 0.0045, "stars_midtones": 0.012, "starless_saturation": 0.12, "stars_saturation": 0.04, "star_strength": 0.70},
-      "preview": "pixinsight-review-rejected.png"
+      "finish": {"starless_midtones": 0.0045, "stars_midtones": 0.012, "starless_saturation": 0.12, "stars_saturation": 0.04, "star_strength": 0.70}
     },
     {
       "id": "attempt-002",
@@ -80,12 +79,12 @@
       "success_marker": "ASTRO_PROCESSING_PIXINSIGHT_OK",
       "review": "accepted",
       "finish": {"starless_midtones": 0.0037, "stars_midtones": 0.018, "starless_saturation": 0.18, "stars_saturation": 0.025, "star_strength": 0.45},
-      "previews": [
-        "pixinsight-review-abe-corrected.png",
-        "pixinsight-review-abe-model.png",
-        "pixinsight-review-starless.png",
-        "pixinsight-review-stars.png",
-        "pixinsight-review-accepted.png"
+      "reviewed_preview_classes": [
+        "ABE corrected",
+        "ABE model",
+        "RC starless",
+        "RC stars",
+        "final reconstruction"
       ]
     }
   ],
@@ -110,8 +109,10 @@
     "wcs_absence_preserved": true,
     "orientation_signature": true
   },
+  "evidence_policy": "Visual previews were reviewed locally; no observation-derived pixels are committed to this repository.",
   "limitations": [
     "The representative input was downsampled before the run because full-resolution multi-attempt evidence exceeded safe local disk reserve.",
+    "The captured PixInsight runs predate the final Python-side frozen-contract, concurrency-lock, and strict-manifest hardening; those gates have dependency-free regression coverage but still require a fresh PixInsight-host smoke and representative visual run.",
     "SPCC, DBE, WBPP, automated ImageSolver, external-software FITS round trip, other data types, other platforms, and other PixInsight builds remain experimental.",
     "The runtime probe proves process construction and model selection, not license state. License availability was separately user-confirmed and no license material was recorded."
   ]
