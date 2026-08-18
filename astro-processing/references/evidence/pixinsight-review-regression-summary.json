@@ -1,0 +1,119 @@
+{
+  "schema_version": 1,
+  "date": "2026-08-18",
+  "environment": {
+    "host": "macOS 15.6.1 (24G90) arm64",
+    "pixinsight_executable_architecture": "x86_64",
+    "pixinsight": "1.9.3 build 1646",
+    "execution": "GUI IPC PJSR; not headless"
+  },
+  "launch_shape": "<PI_APP>/Contents/MacOS/PixInsight --execute=<ATTEMPT>/scripts/pixinsight-pipeline.js",
+  "capability_probe": {
+    "ok": true,
+    "success_marker": "ASTRO_PROCESSING_PIXINSIGHT_PROBE_OK",
+    "bxt": {"module_version": "2.1.4", "process_constructed": true, "model": "BlurXTerminator.4.mlpackage"},
+    "sxt": {"module_version": "2.4.11", "process_constructed": true, "model": "StarXTerminator.lite.nonoise.11.mlpackage"},
+    "nxt": {"module_version": "2.3.3", "process_constructed": true, "model": "NoiseXTerminator.3.mlpackage"},
+    "license_checked_by_probe": false
+  },
+  "smoke_retry": {
+    "gui_absent_attempt": "timed_out in its own attempt without a result JSON",
+    "gui_running_attempt": "succeeded in a new attempt with ASTRO_PROCESSING_PIXINSIGHT_OK",
+    "paths_or_execution_ids_reused": false
+  },
+  "input": {
+    "kind": "full-field 4x downsample of one real post-integration OSC stack",
+    "width": 1554,
+    "height": 1034,
+    "channels": 3,
+    "bits_per_sample": 32,
+    "sample_format": "real",
+    "declared_linear": true,
+    "wcs": false
+  },
+  "frozen_route": [
+    "ABE degree 1",
+    "BackgroundNeutralization",
+    "classic ColorCalibration",
+    "BXT 2.1.4 AI4",
+    "SXT 2.4.11 AI11 lite nonoise",
+    "NXT 2.3.3 AI3",
+    "layer stretch and screen reconstruction",
+    "XISF/FITS/TIF/PNG/JPG export and reopen"
+  ],
+  "attempts": [
+    {
+      "id": "attempt-001",
+      "execution_id": "334f894dbd86408784a4d2a6a281c126",
+      "technical_result": "needs_review",
+      "ok": true,
+      "success_marker": "ASTRO_PROCESSING_PIXINSIGHT_OK",
+      "review": "rejected",
+      "issues": ["stellar field dominated the target", "nebular structure was under-emphasized"],
+      "finish": {"starless_midtones": 0.0045, "stars_midtones": 0.012, "starless_saturation": 0.12, "stars_saturation": 0.04, "star_strength": 0.70}
+    },
+    {
+      "id": "attempt-002",
+      "execution_id": "1947ff2a4e754231a41dfa5e3fa6df52",
+      "technical_result": "needs_review",
+      "ok": true,
+      "success_marker": "ASTRO_PROCESSING_PIXINSIGHT_OK",
+      "review": "accepted",
+      "finish": {"starless_midtones": 0.0037, "stars_midtones": 0.018, "starless_saturation": 0.18, "stars_saturation": 0.025, "star_strength": 0.45}
+    },
+    {
+      "id": "attempt-003",
+      "execution_id": "58f91d54ce2e41a08d832ee0149705b7",
+      "technical_result": "needs_review",
+      "ok": true,
+      "success_marker": "ASTRO_PROCESSING_PIXINSIGHT_OK",
+      "review": "rejected",
+      "issues": ["linked ABE model display stretch produced an unusable flat green preview"],
+      "code_change_after_review": "diagnostic preview stretch changed to unlinked per-channel display only"
+    },
+    {
+      "id": "attempt-004",
+      "execution_id": "1ba503cb82a24aa6beb83f23c9967fcc",
+      "technical_result": "needs_review",
+      "ok": true,
+      "success_marker": "ASTRO_PROCESSING_PIXINSIGHT_OK",
+      "review": "accepted",
+      "finish": {"starless_midtones": 0.0037, "stars_midtones": 0.018, "starless_saturation": 0.18, "stars_saturation": 0.025, "star_strength": 0.45},
+      "reviewed_preview_classes": [
+        "ABE corrected",
+        "ABE model",
+        "RC starless",
+        "RC stars",
+        "final reconstruction"
+      ]
+    }
+  ],
+  "final_run_state": {
+    "status": "complete",
+    "selected_attempt": "attempt-004",
+    "distinct_attempt_directories": true,
+    "distinct_execution_ids": true
+  },
+  "outputs_each_attempt": [
+    {"format": "XISF", "width": 1554, "height": 1034, "channels": 3, "bits_per_sample": 32, "sample_format": "real", "declared_linear": false},
+    {"format": "FITS", "width": 1554, "height": 1034, "channels": 3, "bits_per_sample": 32, "sample_format": "real", "declared_linear": false},
+    {"format": "TIF", "width": 1554, "height": 1034, "channels": 3, "bits_per_sample": 32, "sample_format": "real", "declared_linear": false},
+    {"format": "PNG", "width": 1554, "height": 1034, "channels": 3, "bits_per_sample": 8, "sample_format": "integer", "declared_linear": false},
+    {"format": "JPG", "width": 1554, "height": 1034, "channels": 3, "bits_per_sample": 8, "sample_format": "integer", "declared_linear": false}
+  ],
+  "boundary_checks": {
+    "dimensions": true,
+    "channels": true,
+    "bit_depth": true,
+    "declared_linear_state": true,
+    "wcs_absence_preserved": true,
+    "orientation_signature": true
+  },
+  "evidence_policy": "Visual previews were reviewed locally; no observation-derived pixels are committed to this repository.",
+  "limitations": [
+    "The representative input was downsampled before the run because full-resolution multi-attempt evidence exceeded safe local disk reserve.",
+    "The captured PixInsight runs predate the final Python-side frozen-contract, concurrency-lock, and strict-manifest hardening; those gates have dependency-free regression coverage but still require a fresh PixInsight-host smoke and representative visual run.",
+    "SPCC, DBE, WBPP, automated ImageSolver, external-software FITS round trip, other data types, other platforms, and other PixInsight builds remain experimental.",
+    "The runtime probe proves process construction and model selection, not license state. License availability was separately user-confirmed and no license material was recorded."
+  ]
+}

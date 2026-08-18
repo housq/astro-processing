@@ -39,7 +39,8 @@ def write_run_snapshot(
             key: value
             for key, value in capability.items()
             if key in {
-                "available", "installed", "executable", "version", "maturity", "license", "platform", "stages",
+                "available", "installed", "executable", "version", "build", "maturity", "license", "platform",
+                "execution", "headless", "stages",
                 "ab_stages", "command_prefix", "interface", "runtime_backend", "requires_weights", "weights", "models",
                 "super_resolution",
             }

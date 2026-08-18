@@ -20,6 +20,8 @@ Hard constraints:
 - PCC/SPCC requires actual success evidence; process exit alone is insufficient.
 - Never apply automatic green removal after successful PCC/SPCC without a documented residual cast.
 - Final export follows visual QC, not merely command completion.
+- A technically successful execution enters `needs_review`. Only explicit visual acceptance promotes it to `complete`; rejection and tuning create a new immutable attempt.
+- Failed, timed-out, malformed, and late results remain associated with their original execution ID and attempt directory. Never promote a quarantined late result or reuse its paths for a retry.
 
 Use native formats inside a main backend:
 
