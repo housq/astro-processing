@@ -10,7 +10,9 @@ function loadParams()
 
 function writeJson( path, value )
 {
-   File.writeTextFile( path, JSON.stringify( value, null, 2 ) + "\n" );
+   var temporary = path + "." + Math.round( 1000000000*Math.random() ) + ".tmp";
+   File.writeTextFile( temporary, JSON.stringify( value, null, 2 ) + "\n" );
+   File.move( temporary, path );
 }
 
 function stats( image )
@@ -123,7 +125,44 @@ function saturate( w, amount )
    if ( !C.executeOn( w.mainView, false ) ) throw new Error( "ColorSaturation failed" );
 }
 
-function runABE( source, cfg, outputPath, modelPath )
+function reviewStretch( source, path, fixedMidtones )
+{
+   var image = source.mainView.image;
+   var preview = new ImageWindow( image.width, image.height, image.numberOfChannels, 32, true,
+      image.isColor, "astro_preview_" + Math.round( 1000000*Math.random() ) );
+   preview.mainView.beginProcess();
+   preview.mainView.image.assign( image );
+   preview.mainView.endProcess();
+   var s = stats( preview.mainView.image ), rows = [], shadows = [], midtones = [];
+   for ( var c = 0; c < 3; ++c )
+   {
+      if ( c >= s.median.length )
+      {
+         shadows.push( 0 ); midtones.push( 0.5 ); rows.push( [0,0.5,1,0,1] ); continue;
+      }
+      var channelShadows = Math.max( 0, Math.min( 0.25, s.median[c] - 2.8*s.avgDev[c] ) );
+      var normalizedMedian = Math.max( 0, Math.min( 1, (s.median[c]-channelShadows)/(1-channelShadows) ) );
+      var channelMidtones = fixedMidtones;
+      if ( !(channelMidtones > 0 && channelMidtones < 1) )
+      {
+         var target = 0.25;
+         var denominator = target*(2*normalizedMedian-1) - normalizedMedian;
+         channelMidtones = Math.abs( denominator ) > 1.0e-12 ? normalizedMedian*(target-1)/denominator : 0.08;
+         if ( !(channelMidtones > 0 && channelMidtones < 1) ) channelMidtones = 0.08;
+      }
+      shadows.push( channelShadows ); midtones.push( channelMidtones );
+      rows.push( [channelShadows,channelMidtones,1,0,1] );
+   }
+   var H = new HistogramTransformation;
+   H.H = [rows[0],rows[1],rows[2],[0,0.5,1,0,1],[0,0.5,1,0,1]];
+   if ( !H.executeOn( preview.mainView, false ) ) throw new Error( "Review preview stretch failed" );
+   var evidence = saveAndVerify( preview, path, false, 8, false, false, false );
+   evidence.reviewStretch = { mode:"unlinked", shadows:shadows, midtones:midtones, target:0.25 };
+   preview.forceClose();
+   return evidence;
+}
+
+function runABE( source, cfg, outputPath, modelPath, correctedPreviewPath, modelPreviewPath )
 {
    var beforeIds = {}, oldWindows = ImageWindow.windows;
    for ( var i = 0; i < oldWindows.length; ++i ) beforeIds[oldWindows[i].mainView.id] = true;
@@ -145,8 +184,11 @@ function runABE( source, cfg, outputPath, modelPath )
    copyMetadata( source, corrected );
    var correctedInfo = saveAndVerify( corrected, outputPath, true, 32, true, true, true );
    var modelInfo = saveAndVerify( model, modelPath, true, 32, true, true, false );
+   var correctedPreview = reviewStretch( corrected, correctedPreviewPath, 0 );
+   var modelPreview = reviewStretch( model, modelPreviewPath, 0 );
    model.forceClose(); source.forceClose();
-   return { window:corrected, evidence:{process:"AutomaticBackgroundExtractor",parameters:cfg,corrected:correctedInfo,model:modelInfo} };
+   return { window:corrected, evidence:{process:"AutomaticBackgroundExtractor",parameters:cfg,corrected:correctedInfo,
+      model:modelInfo,correctedPreview:correctedPreview,modelPreview:modelPreview} };
 }
 
 function runClassicColor( w, cfg, bnPath, outputPath )
@@ -178,7 +220,7 @@ function runBXT( w, cfg, outputPath )
    return { process:"BlurXTerminator", model:cfg.model, parameters:cfg, before:before, output:saveAndVerify(w,outputPath,true,32,true,true,true) };
 }
 
-function runSXT( w, cfg, starlessPath, starsPath )
+function runSXT( w, cfg, starlessPath, starsPath, starlessPreviewPath, starsPreviewPath )
 {
    var known = {}, old = ImageWindow.windows;
    for ( var i = 0; i < old.length; ++i ) known[old[i].mainView.id] = true;
@@ -189,7 +231,8 @@ function runSXT( w, cfg, starlessPath, starsPath )
    for ( var j = 0; j < all.length; ++j ) if ( !known[all[j].mainView.id] ) { stars = all[j]; break; }
    if ( stars == null ) throw new Error( "StarXTerminator star layer not found" );
    return { starless:w, stars:stars, evidence:{process:"StarXTerminator",model:cfg.model,parameters:cfg,
-      starless:saveAndVerify(w,starlessPath,true,32,true,true,true),stars:saveAndVerify(stars,starsPath,true,32,true,true,false)} };
+      starless:saveAndVerify(w,starlessPath,true,32,true,true,true),stars:saveAndVerify(stars,starsPath,true,32,true,true,false),
+      starlessPreview:reviewStretch(w,starlessPreviewPath,0),starsPreview:reviewStretch(stars,starsPreviewPath,0.012)} };
 }
 
 function runNXT( w, cfg, outputPath )
@@ -226,8 +269,33 @@ function exportFinal( w, output, prefix, declaredLinear )
    evidence.push( saveAndVerify( w, output.exports + "/" + prefix + ".tif", declaredLinear, 32, true, true, false ) );
    evidence.push( saveAndVerify( w, output.exports + "/" + prefix + ".png", declaredLinear, 8, false, false, false ) );
    evidence.push( saveAndVerify( w, output.exports + "/" + prefix + ".jpg", declaredLinear, 8, false, false, false ) );
+   var reviewPreview = saveAndVerify( w, output.previews + "/" + prefix + "-review.png", declaredLinear, 8, false, false, false );
    return { expected:expected, files:evidence, fitsBoundary:{format:"FITS",bitsPerSample:32,isReal:true,
-      checks:["dimensions","channels","bit depth","declared linear state","WCS","corner/center orientation signature"]} };
+      checks:["dimensions","channels","bit depth","declared linear state","WCS","corner/center orientation signature"]},
+      reviewPreview:reviewPreview };
+}
+
+function probeProcess( name )
+{
+   try
+   {
+      var P;
+      if ( name == "bxt" ) P = new BlurXTerminator;
+      else if ( name == "sxt" ) P = new StarXTerminator;
+      else if ( name == "nxt" ) P = new NoiseXTerminator;
+      else throw new Error( "Unknown probe process " + name );
+      return { available:true, ai_file:P.ai_file || null };
+   }
+   catch ( e )
+   {
+      return { available:false, error:e.toString() };
+   }
+}
+
+function runProbe( params, result )
+{
+   result.rc_astro = { bxt:probeProcess("bxt"), sxt:probeProcess("sxt"), nxt:probeProcess("nxt") };
+   result.stages.push( {stage:"runtime-capability-probe",ok:true} );
 }
 
 function syntheticWindow()
@@ -249,6 +317,7 @@ function runSmoke( params, result )
    var source = saveAndVerify( w, params.output.checkpoints + "/synthetic-linear.xisf", true, 32, true, true, true );
    result.input = source;
    result.exports = exportFinal( w, params.output, "synthetic-smoke", true );
+   result.previews.push( result.exports.reviewPreview.path );
    result.stages.push( {stage:"synthetic-create",ok:true} );
    result.stages.push( {stage:"export-and-reopen",ok:true} );
    w.forceClose();
@@ -262,8 +331,10 @@ function runPipeline( params, result )
    if ( inputInfo.channels != 3 || !inputInfo.isColor || inputInfo.bitsPerSample != 32 || !inputInfo.isReal )
       throw new Error( "Expected OSC RGB Float32 integrated-linear XISF" );
    result.input = inputInfo;
-   var b = runABE( w, params.stages.background, params.output.checkpoints+"/01-abe-linear.xisf", params.output.checkpoints+"/01-abe-model.xisf" );
+   var b = runABE( w, params.stages.background, params.output.checkpoints+"/01-abe-linear.xisf", params.output.checkpoints+"/01-abe-model.xisf",
+      params.output.previews+"/01-abe-corrected.png", params.output.previews+"/01-abe-model.png" );
    w = b.window; result.stages.push( {stage:"background-extraction",ok:true,evidence:b.evidence} );
+   result.previews.push( b.evidence.correctedPreview.path, b.evidence.modelPreview.path );
    var color = runClassicColor( w, params.stages.color, params.output.checkpoints+"/02-bn-linear.xisf", params.output.checkpoints+"/02-color-linear.xisf" );
    result.stages.push( {stage:"color-calibration",ok:true,evidence:color} );
    var rc = params.stages.rc_astro;
@@ -271,9 +342,11 @@ function runPipeline( params, result )
    {
       if ( !rc.license_confirmed ) throw new Error( "RC-Astro license confirmation is required" );
       result.stages.push( {stage:"deconvolution",ok:true,evidence:runBXT(w,rc.bxt,params.output.checkpoints+"/03-bxt-linear.xisf")} );
-      var separated = runSXT( w, rc.sxt, params.output.checkpoints+"/04-starless-linear.xisf", params.output.checkpoints+"/04-stars-linear.xisf" );
+      var separated = runSXT( w, rc.sxt, params.output.checkpoints+"/04-starless-linear.xisf", params.output.checkpoints+"/04-stars-linear.xisf",
+         params.output.previews+"/04-starless.png", params.output.previews+"/04-stars.png" );
       w = separated.starless; var stars = separated.stars;
       result.stages.push( {stage:"star-separation",ok:true,evidence:separated.evidence} );
+      result.previews.push( separated.evidence.starlessPreview.path, separated.evidence.starsPreview.path );
       result.stages.push( {stage:"denoise",ok:true,evidence:runNXT(w,rc.nxt,params.output.checkpoints+"/05-nxt-starless-linear.xisf")} );
       stretch( w, params.stages.finish.starless_midtones ); saturate( w, params.stages.finish.starless_saturation );
       stretch( stars, params.stages.finish.stars_midtones ); saturate( stars, params.stages.finish.stars_saturation );
@@ -289,6 +362,7 @@ function runPipeline( params, result )
       copyMetadata( w, finalWindow );
       result.stages.push( {stage:"stretch-and-star-reconstruction",ok:true,parameters:params.stages.finish} );
       result.exports = exportFinal( finalWindow, params.output, "final-rc-balanced", false );
+      result.previews.push( result.exports.reviewPreview.path );
       finalWindow.forceClose(); stars.forceClose(); w.forceClose();
    }
    else
@@ -297,22 +371,27 @@ function runPipeline( params, result )
       stretch( w, params.stages.finish.single_midtones ); saturate( w, params.stages.finish.single_saturation );
       result.stages.push( {stage:"stretch",ok:true,parameters:{midtones:params.stages.finish.single_midtones,saturation:params.stages.finish.single_saturation}} );
       result.exports = exportFinal( w, params.output, "final-balanced", false );
+      result.previews.push( result.exports.reviewPreview.path );
       w.forceClose();
    }
 }
 
 var params = loadParams();
-var result = {schema_version:1,ok:false,execution_id:params.execution_id || null,mode:params.mode,stages:[],
+var result = {schema_version:1,ok:false,execution_id:params.execution_id || null,mode:params.mode,stages:[],previews:[],
    pixinsight:{versionMajor:CoreApplication.versionMajor,versionMinor:CoreApplication.versionMinor,
       versionRelease:CoreApplication.versionRelease,versionRevision:CoreApplication.versionRevision,
       versionBuild:CoreApplication.versionBuild},
-   execution:{mechanism:"--execute IPC to running GUI",headless:false,params:ASTRO_PARAMS_PATH},
+   execution:{mechanism:"--execute IPC to running GUI",headless:false,params:ASTRO_PARAMS_PATH,
+      frozenExecutable:params.frozen_executable || null,routeFingerprint:params.route_fingerprint || null},
    limitations:params.limitations};
 try
 {
    console.beginLog( params.console_log );
-   if ( params.mode == "smoke" ) runSmoke( params, result ); else runPipeline( params, result );
-   result.ok = true; result.successMarker = "ASTRO_PROCESSING_PIXINSIGHT_OK";
+   if ( params.mode == "smoke" ) runSmoke( params, result );
+   else if ( params.mode == "probe" ) runProbe( params, result );
+   else runPipeline( params, result );
+   result.ok = true;
+   result.successMarker = params.mode == "probe" ? "ASTRO_PROCESSING_PIXINSIGHT_PROBE_OK" : "ASTRO_PROCESSING_PIXINSIGHT_OK";
    writeJson( params.result, result );
    console.noteln( result.successMarker );
    console.endLog();

@@ -1,0 +1,32 @@
+[2026-08-18] environment macOS 15.6.1 (24G90) arm64; PixInsight executable x86_64
+[2026-08-18] PixInsight Core 1.9.3 build 1646; GUI IPC PJSR, not headless
+[probe] ASTRO_PROCESSING_PIXINSIGHT_PROBE_OK
+[probe] BlurXTerminator 2.1.4 model=BlurXTerminator.4.mlpackage process_constructed=true
+[probe] StarXTerminator 2.4.11 model=StarXTerminator.lite.nonoise.11.mlpackage process_constructed=true
+[probe] NoiseXTerminator 2.3.3 model=NoiseXTerminator.3.mlpackage process_constructed=true
+[smoke] synthetic RGB Float32 96x64x3
+[smoke] export/reopen XISF Float32; FITS Float32; TIF Float32; PNG UInt8; JPG UInt8
+[smoke] ASTRO_PROCESSING_PIXINSIGHT_OK
+[smoke-retry] GUI-absent attempt timed_out with no result JSON; GUI-running retry used a new isolated attempt and succeeded
+[attempt-001] execution_id=334f894dbd86408784a4d2a6a281c126 route_fingerprint=eac0e5320a6c6496
+[attempt-001] input real integrated-linear OSC Float32 1554x1034x3 WCS=false
+[attempt-001] ABE ok; BackgroundNeutralization ok; classic ColorCalibration ok
+[attempt-001] BXT 2.1.4 ok; SXT 2.4.11 ok; NXT 2.3.3 ok; reconstruction ok
+[attempt-001] export/reopen XISF/FITS/TIF/PNG/JPG dimensions/channels/depth/WCS-state/orientation ok
+[attempt-001] ASTRO_PROCESSING_PIXINSIGHT_OK -> needs_review -> rejected
+[attempt-002] execution_id=1947ff2a4e754231a41dfa5e3fa6df52 route_fingerprint=eac0e5320a6c6496
+[attempt-002] distinct attempt directory; frozen executable and processors unchanged
+[attempt-002] tuned starless/stars midtones=0.0037/0.018 saturation=0.18/0.025 star_strength=0.45
+[attempt-002] ABE ok; BackgroundNeutralization ok; classic ColorCalibration ok
+[attempt-002] BXT 2.1.4 ok; SXT 2.4.11 ok; NXT 2.3.3 ok; reconstruction ok
+[attempt-002] export/reopen XISF/FITS/TIF/PNG/JPG dimensions/channels/depth/WCS-state/orientation ok
+[attempt-002] ASTRO_PROCESSING_PIXINSIGHT_OK -> needs_review -> accepted
+[attempt-003] execution_id=58f91d54ce2e41a08d832ee0149705b7 route_fingerprint=eac0e5320a6c6496
+[attempt-003] generated ABE corrected/model, RC starless/stars, and final previews
+[attempt-003] ASTRO_PROCESSING_PIXINSIGHT_OK -> needs_review -> rejected; linked ABE model preview was not reviewable
+[attempt-004] execution_id=1ba503cb82a24aa6beb83f23c9967fcc route_fingerprint=eac0e5320a6c6496
+[attempt-004] unlinked display-only diagnostic preview stretch; processing checkpoints unchanged
+[attempt-004] ABE corrected/model previews reviewed; model shows smooth gradient without target leakage
+[attempt-004] RC starless/stars previews reviewed; final reconstruction preview reviewed
+[attempt-004] ASTRO_PROCESSING_PIXINSIGHT_OK -> needs_review -> accepted
+[run] complete selected_attempt=attempt-004

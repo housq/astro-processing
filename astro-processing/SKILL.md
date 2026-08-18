@@ -168,9 +168,12 @@ python3 "$ASTRO" preflight \
 python3 "$ASTRO" plan ... --confirm-route
 python3 "$ASTRO" run --run /absolute/output/run-id --dry-run
 python3 "$ASTRO" run --run /absolute/output/run-id
+python3 "$ASTRO" review-pixinsight --run /absolute/output/run-id --attempt attempt-id --verdict accept --notes "Visual QC passed"
 ```
 
-Read [pixinsight.md](references/pixinsight.md) before removing `--dry-run`. PixInsight uses XISF checkpoints and a generated PJSR script. The implemented launcher submits `--execute=<script>` to a running GUI instance and waits for a unique result JSON; it is not a headless CLI. Add `--rc-astro --confirm-rc-astro-license` to preflight and plan only after the user confirms active local BXT/SXT/NXT licenses. Never store license data.
+Read [pixinsight.md](references/pixinsight.md) before removing `--dry-run`. PixInsight uses XISF checkpoints and a generated PJSR script. Every execution and retry gets an immutable attempt directory. The implemented launcher submits `--execute=<script>` to a running GUI instance and authenticates `ok`, `successMarker`, and `execution_id`; it is not a headless CLI. Technical success stops at `needs_review`. Only `review-pixinsight --verdict accept` may mark the run `complete`; reject, tune an allowlisted parameter JSON, and run again to create a new attempt.
+
+Before selecting RC-Astro, run `probe-pixinsight --output /absolute/probes` and pass its result JSON to preflight/plan with `--pixinsight-probe`. Module/version/bundled-model discovery and the PJSR construction probe are independent of license confirmation. Add `--rc-astro --confirm-rc-astro-license` only after the user confirms active local BXT/SXT/NXT licenses. Confirmation alone never makes a missing or unprobed module available. Never store license data.
 
 ## Install only after consolidated approval
 

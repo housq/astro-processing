@@ -12,6 +12,31 @@ from typing import Any
 from .common import command, executable, platform_key
 
 
+RC_ASTRO_MODULES = {
+    "bxt": {
+        "filename": "BlurXTerminator-pxm.dylib",
+        "process": "BlurXTerminator",
+        "model_token": "BlurXTerminator.mlpackage",
+        "expected_model": "BlurXTerminator.4.mlpackage",
+        "stage": "deconvolution",
+    },
+    "sxt": {
+        "filename": "StarXTerminator-pxm.dylib",
+        "process": "StarXTerminator",
+        "model_token": "StarXTerminator.mlpackage",
+        "expected_model": "StarXTerminator.lite.nonoise.11.mlpackage",
+        "stage": "star_separation",
+    },
+    "nxt": {
+        "filename": "NoiseXTerminator-pxm.dylib",
+        "process": "NoiseXTerminator",
+        "model_token": "NoiseXTerminator.mlpackage",
+        "expected_model": "NoiseXTerminator.3.mlpackage",
+        "stage": "denoise",
+    },
+}
+
+
 def find_pixinsight(explicit: str | None = None) -> Path | None:
     home = Path.home()
     return executable([
@@ -73,13 +98,83 @@ def _stage_maturity() -> dict[str, str]:
     }
 
 
+def _module_directories(executable_path: Path) -> list[Path]:
+    """Return installation-relative module directories without searching user data."""
+    candidates = [executable_path.parent / "bin", executable_path.parent]
+    parents = list(executable_path.parents)
+    if len(parents) >= 4 and parents[1].name == "Contents":
+        candidates.extend((parents[3] / "bin", parents[1] / "bin"))
+    result: list[Path] = []
+    for candidate in candidates:
+        candidate = candidate.resolve()
+        if candidate not in result:
+            result.append(candidate)
+    return result
+
+
+def discover_rc_astro(executable_path: Path | None) -> dict[str, Any]:
+    """Discover PI modules, version markers, and bundled-model tokens.
+
+    This is deliberately independent of license confirmation. A discovered
+    module is not routable until an authenticated PJSR capability probe also
+    proves that the process can be constructed in the frozen PixInsight build.
+    """
+    modules: dict[str, Any] = {}
+    for key, specification in RC_ASTRO_MODULES.items():
+        module_path = None
+        if executable_path:
+            for directory in _module_directories(executable_path):
+                candidate = directory / specification["filename"]
+                if candidate.is_file():
+                    module_path = candidate
+                    break
+        record: dict[str, Any] = {
+            "installed": False,
+            "version": None,
+            "model_token": specification["model_token"],
+            "expected_model": specification["expected_model"],
+            "model_detected": False,
+            "process": specification["process"],
+            "stage": specification["stage"],
+        }
+        if module_path:
+            try:
+                payload = module_path.read_bytes()
+            except OSError as exc:
+                record["error"] = str(exc)
+            else:
+                match = re.search(rb"PIXINSIGHT_MODULE_VERSION_(\d+)\.(\d+)\.(\d+)\.(\d+)\.", payload)
+                record.update({
+                    "installed": match is not None,
+                    "module": str(module_path),
+                    "version": ".".join(part.decode("ascii") for part in match.groups()[:3]) if match else None,
+                    "model_detected": specification["model_token"].encode("ascii") in payload,
+                })
+        modules[key] = record
+    installed = all(item["installed"] and item["model_detected"] and item["version"] for item in modules.values())
+    return {
+        "available": False,
+        "installed": installed,
+        "license": "unconfirmed",
+        "runtime_probe": "required",
+        "maturity": "experimental" if installed else "unavailable",
+        "provider": "PixInsight process modules",
+        "modules": modules,
+        "stages": {
+            specification["stage"]: "experimental" if modules[key]["installed"] else "unavailable"
+            for key, specification in RC_ASTRO_MODULES.items()
+        },
+        "note": "Filesystem discovery does not confirm a license or runtime process availability.",
+    }
+
+
 def discover(explicit: str | None = None) -> dict[str, Any]:
     path = find_pixinsight(explicit)
     if not path:
         return {"available": False, "installed": False, "maturity": "unavailable", "stages": {}}
     version, raw = version_banner(path)
     platform = platform_key()
-    return {
+    result = {
         "available": True,
         "installed": True,
         "executable": str(path),
@@ -94,3 +189,5 @@ def discover(explicit: str | None = None) -> dict[str, Any]:
         "validated_scope": "See references/pixinsight.md for the exact, single-host validation matrix; discovery alone never proves a stage.",
         "stages": _stage_maturity(),
     }
+    result["rc_astro_modules"] = discover_rc_astro(path)
+    return result

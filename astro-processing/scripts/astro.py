@@ -25,7 +25,7 @@ from state import write_run_snapshot  # noqa: E402
 
 
 VERSION = "0.2.0"
-PASSTHROUGH = {"run", "resume", "postprocess", "comet", "select", "report", "cleanup"}
+PASSTHROUGH = {"run", "resume", "postprocess", "comet", "select", "report", "cleanup", "review-pixinsight", "reconcile-pixinsight", "probe-pixinsight", "smoke-pixinsight"}
 
 
 class AstroError(RuntimeError):
@@ -91,34 +91,76 @@ def _pixinsight_preflight(
 ) -> dict[str, Any]:
     profile, blockers = pixinsight_engine.inspect_declared_input(args.input, args.input_state, args.data_type)
     rc_enabled = bool(args.rc_astro)
+    rc_discovery = capabilities["pixinsight"].get("rc_astro_modules", {})
+    runtime_probe = None
+    probe_ok = False
+    if args.pixinsight_probe:
+        try:
+            runtime_probe = pixinsight_engine.validate_runtime_probe(
+                args.pixinsight_probe, Path(capabilities["pixinsight"].get("executable", ""))
+            )
+            probe_pi = runtime_probe.get("pixinsight", {})
+            probe_version = ".".join(str(probe_pi.get(field)) for field in ("versionMajor", "versionMinor", "versionRelease"))
+            discovered_version = str(capabilities["pixinsight"].get("version", "unknown"))
+            if probe_version != discovered_version:
+                raise pixinsight_engine.PipelineError(
+                    f"PixInsight runtime probe version {probe_version} does not match discovery {discovered_version}"
+                )
+            probe_ok = True
+        except pixinsight_engine.PipelineError as exc:
+            blockers.append({"code": "PIXINSIGHT_PROBE_INVALID", "message": str(exc)})
+    capabilities["rc_astro"] = {
+        **rc_discovery,
+        "available": bool(rc_discovery.get("installed") and probe_ok and args.confirm_rc_astro_license),
+        "license": "active" if args.confirm_rc_astro_license else "unconfirmed",
+        "runtime_probe": "passed" if probe_ok else "missing-or-invalid",
+    }
     if rc_enabled:
-        capabilities["rc_astro"] = {
-            "available": bool(args.confirm_rc_astro_license),
-            "installed": True,
-            "license": "active" if args.confirm_rc_astro_license else "unconfirmed",
-            "maturity": capabilities["pixinsight"].get("maturity", "experimental"),
-            "provider": "PixInsight process modules",
-            "stages": {stage: capabilities["pixinsight"].get("stages", {}).get(stage, "experimental") for stage in ("deconvolution", "star_separation", "denoise")},
-        }
+        if not rc_discovery.get("installed"):
+            blockers.append({"code": "RC_ASTRO_MODULES_UNAVAILABLE", "message": "BXT/SXT/NXT module, version, and bundled-model discovery did not all pass"})
+        if not probe_ok:
+            blockers.append({"code": "RC_ASTRO_RUNTIME_PROBE_REQUIRED", "message": "Run probe-pixinsight and pass its authenticated result with --pixinsight-probe"})
         if not args.confirm_rc_astro_license:
-            blockers.append({"code": "RC_ASTRO_LICENSE_UNCONFIRMED", "message": "RC-Astro execution requires --confirm-rc-astro-license; no license data is stored"})
+            blockers.append({"code": "RC_ASTRO_LICENSE_UNCONFIRMED", "message": "RC-Astro execution requires separate --confirm-rc-astro-license; no license data is stored"})
     route = build_route(config, capabilities, "pixinsight")
-    for stage, selected in (("background_extraction", "pixinsight"), ("deconvolution", "disabled"),
-                            ("star_separation", "disabled"), ("denoise", "pixinsight")):
+    desired = {
+        "background_extraction": "pixinsight",
+        "deconvolution": "bxt" if rc_enabled else "disabled",
+        "star_separation": "sxt" if rc_enabled else "disabled",
+        "denoise": "nxt" if rc_enabled else "pixinsight",
+    }
+    for stage, selected in desired.items():
+        mode_source = sources.get(f"processors.{stage}.mode", "skill-default")
+        candidates_source = sources.get(f"processors.{stage}.candidates", "skill-default")
+        explicitly_configured = mode_source != "skill-default" or candidates_source != "skill-default"
+        resolved = route["processors"][stage].get("selected")
+        normalized = "pixinsight" if resolved == "main" else resolved
+        if explicitly_configured and normalized != selected:
+            blockers.append({
+                "code": "PIXINSIGHT_EXPLICIT_PROCESSOR_CONFLICT",
+                "message": f"Explicit {stage} processor resolved to {resolved}; consolidated PixInsight route requires {selected}. No silent override was applied.",
+            })
+            continue
         route["processors"][stage] = {
-            "selected": selected, "mode": "require" if selected != "disabled" else "disabled",
-            "maturity": capabilities["pixinsight"].get("stages", {}).get(stage, "experimental") if selected != "disabled" else "disabled",
-            "fallbacks": [], "requires_confirmation": selected != "disabled",
-            "reason": "Frozen PixInsight post-integration PJSR route",
+            "selected": selected,
+            "mode": "require" if selected != "disabled" else "disabled",
+            "source": "current-request" if rc_enabled and stage in {"deconvolution", "star_separation", "denoise"} else "pixinsight-adapter-default",
+            "maturity": capabilities["rc_astro"].get("stages", {}).get(stage, "experimental") if selected in {"bxt", "sxt", "nxt"} else (
+                capabilities["pixinsight"].get("stages", {}).get(stage, "experimental") if selected != "disabled" else "disabled"
+            ),
+            "fallbacks": [],
+            "requires_confirmation": selected != "disabled",
+            "reason": "Exact consolidated PJSR route; explicit conflicting processor settings are blockers",
         }
-    if rc_enabled and args.confirm_rc_astro_license:
-        for stage, selected in (("deconvolution", "bxt"), ("star_separation", "sxt"), ("denoise", "nxt")):
-            route["processors"][stage] = {
-                "selected": selected, "mode": "require", "maturity": capabilities["pixinsight"]["stages"][stage],
-                "fallbacks": [], "requires_confirmation": True,
-                "reason": "Explicit licensed PixInsight RC-Astro branch",
-            }
-        route["confirmation_reasons"].append("licensed RC-Astro BXT/SXT/NXT branch explicitly selected")
+    for stage in ("satellite_removal", "detail_restoration"):
+        if route["processors"][stage].get("selected") != "disabled":
+            blockers.append({"code": "PIXINSIGHT_STAGE_NOT_IMPLEMENTED", "message": f"Frozen processor {stage}={route['processors'][stage]['selected']} is not implemented by this PJSR path"})
+    route["confirmation_reasons"] = []
+    if route["main_backend"].get("requires_confirmation"):
+        route["confirmation_reasons"].append("PixInsight main backend is experimental on this exact validation matrix")
+    for stage, decision in route["processors"].items():
+        if decision.get("requires_confirmation"):
+            route["confirmation_reasons"].append(f"{stage} uses {decision['selected']} ({decision['maturity']})")
     output = args.output.expanduser().resolve() if args.output else pixinsight_engine.default_output(args.input)
     output.mkdir(parents=True, exist_ok=True)
     free = shutil.disk_usage(output).free
@@ -141,7 +183,13 @@ def _pixinsight_preflight(
         "blockers": blockers, "degradations": degradations, "requires_confirmation": True,
         "network_catalog_access": {"available": None, "maturity": "not-required", "reason": "SPCC skipped"},
         "accepted_warnings": [], "loaded_config_files": loaded, "capabilities": capabilities,
-        "pixinsight_plan": {"rc_astro": rc_enabled, "license_confirmed": bool(args.confirm_rc_astro_license), "input_state": args.input_state, "data_type": args.data_type},
+        "pixinsight_plan": {
+            "rc_astro": rc_enabled,
+            "license_confirmed": bool(args.confirm_rc_astro_license),
+            "runtime_probe": runtime_probe,
+            "input_state": args.input_state,
+            "data_type": args.data_type,
+        },
     }
 
 
@@ -237,6 +285,7 @@ def add_route_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--dark-temp-tolerance", type=float, default=5.0)
     parser.add_argument("--siril")
     parser.add_argument("--pixinsight", help="explicit PixInsight executable")
+    parser.add_argument("--pixinsight-probe", type=Path, help="authenticated result JSON from probe-pixinsight")
     parser.add_argument("--input-state", choices=("unknown", "integrated-linear"), default="unknown")
     parser.add_argument("--data-type", choices=("unknown", "osc-color", "mono", "lrgb", "narrowband"), default="unknown")
     parser.add_argument("--rc-astro", action="store_true", help="select the licensed PixInsight BXT/SXT/NXT branch")
@@ -291,7 +340,9 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def _passthrough_backend(arguments: list[str]) -> int:
-    if arguments[0] != "run":
+    if arguments[0] in {"probe-pixinsight", "smoke-pixinsight"}:
+        return pixinsight_engine.run(arguments)
+    if arguments[0] not in {"run", "review-pixinsight", "reconcile-pixinsight"}:
         return siril.run(arguments)
     try:
         index = arguments.index("--run")
@@ -347,14 +398,15 @@ def main(argv: list[str] | None = None) -> int:
                 main_backend = payload["route"]["main_backend"]["selected"]
                 output = Path(payload["output"])
                 if main_backend == "pixinsight":
-                    pi_plan = payload["pixinsight_plan"]
-                    run_dir = pixinsight_engine.create_run(args.input, output, args.run_id, pi_plan["rc_astro"], pi_plan["license_confirmed"])
+                    run_dir = pixinsight_engine.create_run(args.input, output, args.run_id)
                 else:
                     run_dir = siril_engine.create_run(args.input, output, args.run_id, args.dark_temp_tolerance)
                 snapshot = write_run_snapshot(
                     run_dir, args.input, project, config, sources, loaded, payload["capabilities"], payload["route"], serializable,
                     payload["data_profile"], payload["support_level"],
                 )
+                if main_backend == "pixinsight":
+                    pixinsight_engine.freeze_run(run_dir)
                 print(f"Run: {run_dir}")
                 print(f"Frozen route: {snapshot}")
         elif args.command == "stage":
